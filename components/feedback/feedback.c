@@ -23,6 +23,7 @@ static const char *TAG = "feedback";
 #error "A feedback GPIO is not usable on ESP32-S3 (22-37)"
 #endif
 
+#define KEY_BEEP_MS 30
 #define SHORT_BEEP_MS 80
 #define LONG_BEEP_MS 400
 #define BEEP_GAP_MS 100
@@ -121,7 +122,11 @@ static void on_app_event(void *handler_argument, esp_event_base_t base,
   case APP_EVENT_FACE_REJECTED:
   case APP_EVENT_APPROVAL_DENIED:
   case APP_EVENT_APPROVAL_TIMEOUT:
+  case APP_EVENT_PIN_REJECTED:
     pattern = (pattern_t){LED_RED, 2, SHORT_BEEP_MS, SHOW_RESULT_MS};
+    break;
+  case APP_EVENT_PIN_LOCKED_OUT:
+    pattern = (pattern_t){LED_RED, 1, LONG_BEEP_MS, SHOW_RESULT_MS};
     break;
   case APP_EVENT_ENROLL_STARTED:
     pattern = (pattern_t){LED_BLUE, 1, LONG_BEEP_MS, 0};
@@ -137,6 +142,18 @@ static void on_app_event(void *handler_argument, esp_event_base_t base,
   }
   /* Never blocks: this runs on the shared event loop task. */
   xQueueOverwrite(s_patterns, &pattern);
+}
+
+static void on_keypad_event(void *handler_argument, esp_event_base_t base,
+                            int32_t event_id, void *event_data) {
+  (void)handler_argument;
+  (void)base;
+  (void)event_id;
+  const keypad_pin_progress_t *progress = event_data;
+  if (progress->digit_count > 0U) {
+    const pattern_t pattern = {LED_OFF, 1, KEY_BEEP_MS, 0};
+    xQueueOverwrite(s_patterns, &pattern);
+  }
 }
 
 static esp_err_t start_buzzer(int gpio) {
@@ -191,6 +208,10 @@ esp_err_t feedback_start(void) {
                       ESP_ERR_NO_MEM, TAG, "no task");
   ESP_RETURN_ON_ERROR(esp_event_handler_register(APP_EVENTS, ESP_EVENT_ANY_ID,
                                                  on_app_event, NULL),
+                      TAG, "event register failed");
+  ESP_RETURN_ON_ERROR(esp_event_handler_register(KEYPAD_EVENTS,
+                                                 KEYPAD_EVENT_PIN_PROGRESS,
+                                                 on_keypad_event, NULL),
                       TAG, "event register failed");
   ESP_LOGI(TAG, "Buzzer GPIO %d, RGB LED GPIO %d", BUZZER_GPIO, RGB_LED_GPIO);
   return ESP_OK;

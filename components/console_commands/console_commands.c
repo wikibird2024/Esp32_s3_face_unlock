@@ -10,7 +10,9 @@
 #include "esp_console.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "keypad_input.h"
 #include "net_comm.h"
+#include "pin_store.h"
 #include "system_logic.h"
 
 static const char *TAG = "console";
@@ -68,6 +70,9 @@ static int command_status(int argc, char **argv) {
            (unsigned)face_db_capacity(s_face_db),
            (unsigned)face_db_skipped_count(s_face_db));
   }
+  printf("door pin         %s, %lu wrong in a row\n",
+         pin_store_has_pin() ? "set" : "NOT set",
+         (unsigned long)pin_store_failed_count());
   printf("free heap        internal %u, psram %u\n",
          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -185,6 +190,24 @@ static int command_deny(int argc, char **argv) {
   return command_answer(argc, argv, false);
 }
 
+static int command_pin(int argc, char **argv) {
+  esp_err_t err;
+  if (argc == 3 && strcmp(argv[1], "set") == 0) {
+    err = pin_store_set(argv[2]);
+  } else if (argc == 2 && strcmp(argv[1], "clear") == 0) {
+    err = pin_store_clear();
+  } else {
+    printf("Usage: pin set <%u to %u digits>  |  pin clear\n",
+           PIN_STORE_MIN_DIGITS, PIN_STORE_MAX_DIGITS);
+    return 1;
+  }
+  if (err == ESP_OK) {
+    keypad_input_clear_lockout();
+    printf("Done\n");
+  }
+  return report(err);
+}
+
 static esp_err_t register_commands(void) {
   const esp_console_cmd_t commands[] = {
       {.command = "status",
@@ -217,6 +240,10 @@ static esp_err_t register_commands(void) {
        .help = "Deny a face waiting for approval: deny <id>",
        .hint = "<id>",
        .func = command_deny},
+      {.command = "pin",
+       .help = "Set or remove the door PIN: pin set <digits> | pin clear",
+       .hint = "set <digits> | clear",
+       .func = command_pin},
   };
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&commands[i]), TAG,
@@ -232,6 +259,8 @@ esp_err_t console_commands_start(face_db_t *face_db) {
   esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
   repl_config.prompt = "face>";
   repl_config.max_cmdline_length = 128;
+  /* "pin set" runs the PIN hash on this task. */
+  repl_config.task_stack_size = 6144;
 
 #if CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_CUSTOM
   esp_console_dev_uart_config_t device_config =

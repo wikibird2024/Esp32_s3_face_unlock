@@ -1,25 +1,21 @@
-/**
- * @file keypad_input.h
- * @brief Matrix keypad for PIN fallback. NOT IMPLEMENTED YET (stub; not
- *        started by app_main). Its placeholder pins clash with the camera
- *        and lock pins and must be moved before use.
- */
 #pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void keypad_input_init(void);
+/* Scans the 4x4 keypad in its own task and checks PINs against pin_store. A
+   correct PIN asks system_logic to open the door, the same way as the console
+   "unlock": it does not wait for an approval. It never touches the lock itself.
+   Needs NVS and the default event loop. Does nothing if the keypad is turned
+   off in menuconfig. */
+esp_err_t keypad_input_start(void);
 
-/** Non-blocking; true when a key was read into *key. */
-bool keypad_input_get_key(char *key);
-
-bool keypad_input_get_pin(char *pin_buffer, size_t max_len);
+/* Ends a running lockout. For when the owner changes the PIN. Safe from any
+   task. */
+void keypad_input_clear_lockout(void);
 
 #ifdef __cplusplus
 }

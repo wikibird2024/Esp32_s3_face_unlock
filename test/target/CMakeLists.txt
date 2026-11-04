@@ -7,6 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../../components/face_db"
-    "${CMAKE_CURRENT_LIST_DIR}/../../components/door_control")
+    "${CMAKE_CURRENT_LIST_DIR}/../../components/door_control"
+    "${CMAKE_CURRENT_LIST_DIR}/../../components/pin_store")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(face_unlock_target_tests)

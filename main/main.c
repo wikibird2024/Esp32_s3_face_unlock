@@ -1,6 +1,8 @@
 #include "ai_face_recognition.h"
+#include "app_events.h"
 #include "camera_driver.h"
 #include "console_commands.h"
+#include "display.h"
 #include "door_control.h"
 #include "esp_app_desc.h"
 #include "esp_check.h"
@@ -8,6 +10,7 @@
 #include "esp_log.h"
 #include "face_db_nvs.h"
 #include "feedback.h"
+#include "keypad_input.h"
 #include "net_comm.h"
 #include "nvs_flash.h"
 #include "system_logic.h"
@@ -26,16 +29,18 @@ static esp_err_t init_default_nvs(void) {
   return err;
 }
 
-/* Model first, then face store (needs the embedding length), then camera,
- * so the console can still list/delete faces when the camera is broken. */
+/* Model first, then face store (needs the embedding length), then camera. A
+   broken camera only stops face unlock: system logic still starts, so the PIN
+   and the console can open the door, and the console can list and delete faces.
+   Returns the camera error in that case. */
 static esp_err_t start_recognition(face_db_t **out_face_db) {
   ESP_RETURN_ON_ERROR(ai_face_recognition_init(), TAG, "face model");
   ESP_RETURN_ON_ERROR(
       face_db_nvs_open(ai_face_recognition_embedding_len(), out_face_db), TAG,
       "face store");
-  ESP_RETURN_ON_ERROR(camera_driver_init(), TAG, "camera");
+  const esp_err_t camera_err = camera_driver_init();
   ESP_RETURN_ON_ERROR(system_logic_start(*out_face_db), TAG, "system logic");
-  return ESP_OK;
+  return camera_err;
 }
 
 void app_main(void) {
@@ -48,6 +53,10 @@ void app_main(void) {
 
   ESP_ERROR_CHECK(init_default_nvs());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
+  /* Before Wi-Fi, so the screen gets the first IP address. */
+  if (display_start() != ESP_OK) {
+    ESP_LOGW(TAG, "No screen; everything else works");
+  }
   ESP_ERROR_CHECK(net_comm_init());
   if (feedback_start() != ESP_OK) {
     ESP_LOGW(TAG, "No beep/LED feedback; everything else works");
@@ -57,12 +66,16 @@ void app_main(void) {
   esp_err_t err = start_recognition(&face_db);
   if (err != ESP_OK) {
     ESP_LOGE(TAG,
-             "Recognition NOT running (%s). Door stays locked; console "
+             "Face unlock NOT running (%s). Door stays locked; console "
              "is still available for diagnosis.",
              esp_err_to_name(err));
+    esp_event_post(APP_EVENTS, APP_EVENT_RECOGNITION_FAILED, NULL, 0, 0);
   }
   if (err == ESP_OK && video_stream_start() != ESP_OK) {
     ESP_LOGW(TAG, "Live view not running; everything else works");
+  }
+  if (keypad_input_start() != ESP_OK) {
+    ESP_LOGW(TAG, "No keypad; everything else works");
   }
 
   ESP_ERROR_CHECK(console_commands_start(face_db));

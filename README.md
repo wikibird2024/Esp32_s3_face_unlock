@@ -45,9 +45,11 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | `console_commands` | Serial commands for setup and debugging | manual |
 | `app_events` | Event ids and payloads shared by all components | — |
 | `feedback` | Beeps and an RGB LED (WS2812) from the events (listens only) | manual |
+| `display` | One status word on a 0.66" OLED from the events, and the IP address when Wi-Fi connects (listens only) | host (drawing), manual |
+| `keypad_input` | 4x4 keypad: scan, debounce, PIN entry with lockout | host (logic), manual |
+| `pin_store` | The door PIN as a salted hash in NVS, with the wrong-try count | device |
 | `net_comm` | Wi-Fi station (optional); listens to events, MQTT is the next milestone | — |
 | `video_stream` | Live camera view over HTTP (`/`, `/stream`, `/jpg`) | manual |
-| `keypad_input` | Stub, not started (next milestone) | — |
 
 ## Hardware
 
@@ -57,7 +59,10 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | Camera | OV5640, XCLK 15, SDA 4, SCL 5, D0–D7 11 9 8 10 12 18 17 16, VSYNC 6, HREF 7, PCLK 13 | menuconfig → *Camera driver* |
 | Lock output | GPIO 2, active high | menuconfig → *Door control* |
 | Enroll button | off (-1); GPIO 0 is BOOT, active low | menuconfig → *System logic* |
-| Buzzer, RGB LED | off (-1); free: 14 (buzzer, active high), 21 or the DevKitC LED on 48/38 (WS2812) | menuconfig → *Feedback* |
+| Buzzer | off (-1); GPIO 14 is free (active high) | menuconfig → *Feedback* |
+| RGB LED (WS2812) | off (-1); no free GPIO while the keypad is on | menuconfig → *Feedback* |
+| OLED, 0.66" 64x48 SSD1306 | SDA 41, SCL 42, address 0x3C, reset not wired. Standard wiring: GPIO 41 to board pin D2, GPIO 42 to D1 (D1 mini names, not GPIO numbers), power from 3V3. **Check with a meter first**, and keep it off the camera bus: the OV5640 is also 0x3C | menuconfig → *Display* |
+| Keypad, 4x4 matrix | Rows 1 3 21 39, columns 38 40 47 48. On most keypads the connector runs row 1 to 4, then column 1 to 4: **check yours** | menuconfig → *Keypad* |
 
 > Quad-PSRAM modules (N8R2, N4R2): set `CONFIG_SPIRAM_MODE_QUAD=y` in
 > `sdkconfig.defaults` and delete `sdkconfig`, or the board stops at boot
@@ -96,6 +101,28 @@ face as `user_<n>`. The button has no other check, so only use one that
 is inside the house.
 Enrolling the same person 2–3 times (different light or angle) makes
 matching more reliable.
+
+### Open with a PIN (keypad)
+
+There is no default PIN, so set one first (4 to 8 digits, longer is safer):
+
+```
+face> pin set 482913
+face> pin clear           # removes it, and also ends a lockout
+```
+
+At the door: type the digits, then `#`. `*` clears, and typed digits are
+forgotten after 10 s. The screen shows `*` for each digit, then `OPEN` or
+`DENY`.
+
+- After 5 wrong PINs in a row the keypad locks and shows `LOCK`: 30 s at
+  first, doubling with each further wrong PIN, up to 1 hour. Restarting the
+  board does not skip it. `pin set` or `pin clear` ends it.
+- The PIN still works when the camera is dead (the screen shows `ERR`), but
+  not if the face model or face store failed to start.
+- A correct PIN opens at once, even with two-step unlock on, like the console
+  `unlock`. Anyone who learns the PIN can get in: never use the same digits
+  as your bank card.
 
 ### Watch the camera live (optional)
 
@@ -140,8 +167,8 @@ milestone, through the same `system_logic_request_approve()` call.
 
 | Suite | Runs on | Command |
 |---|---|---|
-| Host unit tests: `face_db`, `unlock_state_machine` (50 tests, ASan + UBSan) | PC | see below |
-| On-device tests: `face_db` on NVS, `door_control` GPIO + timer | ESP32-S3 | `cd test/target && idf.py build flash monitor` |
+| Host unit tests: `face_db`, `unlock_state_machine`, `display_render`, `key_debounce`, `pin_entry` (83 tests, ASan + UBSan) | PC | see below |
+| On-device tests: `face_db` and `pin_store` on NVS, `door_control` GPIO + timer | ESP32-S3 | `cd test/target && idf.py build flash monitor` |
 
 ```bash
 cmake -S test/host -B build-host
@@ -162,5 +189,4 @@ and builds the firmware and the on-device test app in the
 | Phone approval (phases, see `docs/mqtt_contract.md`) | A: MQTT in `net_comm` → B: Flutter app (`mobile_app/`, live view done) → C: pairing + HMAC-signed answers → D: push notifications |
 | Hardening | Login on the video stream, console `unlock` off in release, admin-only enroll, flash + NVS encryption |
 | Network + security | Wi-Fi provisioning, MQTT over TLS in `net_comm`, OTA (needs a two-slot partition table), NVS encryption for faces, secure boot |
-| Keypad | Matrix or single-button keypad: pick GPIOs in Kconfig clear of the camera/lock pins, scan + debounce, key/PIN API or events, PIN unlock with lockout |
 | Liveness | Reject photos of a face (blink check or IR camera) |

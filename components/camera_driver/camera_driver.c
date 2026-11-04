@@ -91,6 +91,8 @@ esp_err_t camera_driver_init(void) {
   return ESP_OK;
 }
 
+bool camera_driver_is_ready(void) { return s_is_initialised; }
+
 esp_err_t camera_driver_get_frame(camera_frame_t *out_frame) {
   ESP_RETURN_ON_FALSE(out_frame != NULL, ESP_ERR_INVALID_ARG, TAG, "no output");
   ESP_RETURN_ON_FALSE(s_is_initialised, ESP_ERR_INVALID_STATE, TAG,

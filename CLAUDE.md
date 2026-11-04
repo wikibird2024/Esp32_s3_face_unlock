@@ -37,7 +37,8 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
 ## Architecture rules
 
 - **Pure logic is plain C with no ESP-IDF includes** so it runs in host
-  tests: `face_db/face_db.c` and `system_logic/unlock_state_machine.c`.
+  tests: `face_db/face_db.c`, `system_logic/unlock_state_machine.c`,
+  `display/display_render.c`, `keypad_input/pin_entry.c` and `key_debounce.c`.
   Hardware and OS access goes in separate files (`face_db_nvs.c`,
   `system_logic.c`). Storage and locking reach `face_db` through the
   `face_db_storage_t` / `face_db_lock_t` function tables - keep it that way.
@@ -49,7 +50,10 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
   register a handler instead of being called from `system_logic`.
 - **Door safety**: `door_control_open(hold_ms)` always arms an esp_timer
   that relocks; `app_main` initialises the lock before anything else.
-  Never add a path that sets the lock open without the timer.
+  Never add a path that sets the lock open without the timer. The keypad
+  only asks through `system_logic_request_unlock()`.
+- **PIN secrecy**: typed digits stay inside the keypad task. Events carry only
+  a digit count, and digits are never logged. There is no default PIN.
 - `ai_face_recognition.cpp` is the only C++ file; it wraps the registry
   components `espressif/human_face_detect` and `human_face_recognition`
   (versions in `components/ai_face_recognition/idf_component.yml`). Camera
@@ -68,8 +72,14 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
   in CI, but has not been run on a board yet.
 - Board assumptions in `sdkconfig.defaults` (8 MB flash, octal PSRAM) are
   not confirmed for the custom board.
-- `keypad_input` is a stub with no pins chosen yet; pick them clear of the
-  camera and lock pins (README "Next milestones").
+- `display` and `keypad_input` have not been run on hardware. The OLED wiring
+  (D2 = SDA, D1 = SCL, reset), column offset 32 and orientation, and the keypad
+  pin order, come from memory of the standard parts: check them on the bench.
+- The keypad takes 8 of the 9 free GPIOs, so with it on only one of buzzer
+  (GPIO 14) or RGB LED can be used. An I2C port expander on the screen bus
+  would free them.
+- The door PIN hash is in plain NVS. A 4 to 8 digit PIN can be guessed from a
+  copy of the flash, until NVS encryption is on.
 - `net_comm` has a Wi-Fi station (off when the SSID is empty) but no MQTT
   yet; the planned contract is `docs/mqtt_contract.md`.
 - `video_stream` (HTTP MJPEG) has no login; anyone on the Wi-Fi can watch.

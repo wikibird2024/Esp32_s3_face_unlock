@@ -255,6 +255,12 @@ static void poll_enroll_button(void) {
 }
 
 static void process_frame(void) {
+  /* With a dead camera this task still has to run: it opens the door for the
+     PIN and the console. */
+  if (!camera_driver_is_ready()) {
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_RETRY_DELAY_MS));
+    return;
+  }
   camera_frame_t camera_frame;
   if (camera_driver_get_frame(&camera_frame) != ESP_OK) {
     vTaskDelay(pdMS_TO_TICKS(CAMERA_RETRY_DELAY_MS));

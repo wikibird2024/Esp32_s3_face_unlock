@@ -1,0 +1,48 @@
+menu "Keypad (4x4)"
+
+    config KEYPAD_ENABLED
+        bool "Use a 4x4 matrix keypad"
+        default y
+        help
+            Type a PIN to open the door: digits, then # to submit, * to
+            clear. Set the PIN in the console with: pin set <digits>
+            There is no default PIN, so no PIN opens the door until then.
+
+    if KEYPAD_ENABLED
+        comment "A keypad takes 8 GPIOs. The build stops if one clashes."
+
+        config KEYPAD_ROW1_GPIO
+            int "Row 1 GPIO"
+            range 0 48
+            default 1
+        config KEYPAD_ROW2_GPIO
+            int "Row 2 GPIO"
+            range 0 48
+            default 3
+        config KEYPAD_ROW3_GPIO
+            int "Row 3 GPIO"
+            range 0 48
+            default 21
+        config KEYPAD_ROW4_GPIO
+            int "Row 4 GPIO"
+            range 0 48
+            default 39
+        config KEYPAD_COLUMN1_GPIO
+            int "Column 1 GPIO"
+            range 0 48
+            default 38
+        config KEYPAD_COLUMN2_GPIO
+            int "Column 2 GPIO"
+            range 0 48
+            default 40
+        config KEYPAD_COLUMN3_GPIO
+            int "Column 3 GPIO"
+            range 0 48
+            default 47
+        config KEYPAD_COLUMN4_GPIO
+            int "Column 4 GPIO"
+            range 0 48
+            default 48
+    endif
+
+endmenu

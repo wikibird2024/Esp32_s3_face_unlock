@@ -1,0 +1,42 @@
+menu "Display (0.66 inch OLED)"
+
+    comment "64x48 SSD1306 on its own I2C bus. SDA or SCL at -1 = no screen."
+
+    config DISPLAY_SDA_GPIO
+        int "SDA GPIO"
+        range -1 48
+        default 41
+        help
+            Goes to the pin marked D2 on the OLED board. D1 and D2 are
+            D1 mini names, not ESP32 GPIO numbers. Do not use the camera
+            bus (GPIO 4 and 5): the OV5640 has the same address, 0x3C.
+
+    config DISPLAY_SCL_GPIO
+        int "SCL GPIO"
+        range -1 48
+        default 42
+        help
+            Goes to the pin marked D1 on the OLED board.
+
+    config DISPLAY_RESET_GPIO
+        int "Reset GPIO (-1 = not wired)"
+        range -1 48
+        default -1
+        help
+            Only needed if the reset line of your OLED board is wired to a
+            header pin. Check that pin with a meter.
+
+    config DISPLAY_I2C_ADDRESS
+        hex "I2C address"
+        range 0x3C 0x3D
+        default 0x3C
+        help
+            Set by the 0X3C / 0X3D solder jumper on the OLED board.
+
+    config DISPLAY_UPSIDE_DOWN
+        bool "Turn the text upside down"
+        default n
+        help
+            Depends on how the screen is mounted.
+
+endmenu

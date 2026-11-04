@@ -41,3 +41,18 @@ add_host_test(test_unlock_state_machine
   SOURCES test_unlock_state_machine.c
           ${REPO_ROOT}/components/system_logic/unlock_state_machine.c
   INCLUDES ${REPO_ROOT}/components/system_logic)
+
+add_host_test(test_display_render
+  SOURCES test_display_render.c
+          ${REPO_ROOT}/components/display/display_render.c
+  INCLUDES ${REPO_ROOT}/components/display)
+
+add_host_test(test_key_debounce
+  SOURCES test_key_debounce.c
+          ${REPO_ROOT}/components/keypad_input/key_debounce.c
+  INCLUDES ${REPO_ROOT}/components/keypad_input)
+
+add_host_test(test_pin_entry
+  SOURCES test_pin_entry.c
+          ${REPO_ROOT}/components/keypad_input/pin_entry.c
+  INCLUDES ${REPO_ROOT}/components/keypad_input)

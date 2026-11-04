@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -29,6 +30,9 @@ typedef struct {
 } camera_frame_t;
 
 esp_err_t camera_driver_init(void);
+
+/* False when camera_driver_init() failed or was not called. */
+bool camera_driver_is_ready(void);
 
 /**
  * Take the newest frame. Blocks until one is ready.

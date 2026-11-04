@@ -16,7 +16,8 @@ menu "Feedback (buzzer and RGB LED)"
         help
             Data pin of one addressable RGB LED (WS2812). The LED on the
             ESP32-S3-DevKitC-1 is on GPIO 48 or 38, depending on the board
-            version: check the silkscreen. GPIO 21 is free on the default
-            pin map for an external one.
+            version: check the silkscreen. With the keypad on, the default
+            pin map has no free GPIO left for this: the keypad uses 21, 38
+            and 48, and the build stops if they clash.
 
 endmenu

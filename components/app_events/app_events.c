@@ -1,6 +1,7 @@
 #include "app_events.h"
 
 ESP_EVENT_DEFINE_BASE(APP_EVENTS);
+ESP_EVENT_DEFINE_BASE(KEYPAD_EVENTS);
 
 const char *app_event_name(int32_t event_id) {
   switch ((app_event_id_t)event_id) {
@@ -22,6 +23,12 @@ const char *app_event_name(int32_t event_id) {
     return "approval_denied";
   case APP_EVENT_APPROVAL_TIMEOUT:
     return "approval_timeout";
+  case APP_EVENT_PIN_REJECTED:
+    return "pin_rejected";
+  case APP_EVENT_PIN_LOCKED_OUT:
+    return "pin_locked_out";
+  case APP_EVENT_RECOGNITION_FAILED:
+    return "recognition_failed";
   }
   return "unknown";
 }
