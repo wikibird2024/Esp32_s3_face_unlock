@@ -27,7 +27,7 @@ cd test/target && idf.py build flash monitor
 
 # Phone app (Flutter, SDK in /mnt/storage/HaoTran/sdk)
 cd mobile_app && flutter analyze && flutter test
-python3 mobile_app/tool/fake_board.py --port 8080   # board stand-in
+python3 mobile_app/tool/fake_board.py --port 8080   # board stand-in (API 8080, stream 8081)
 
 # Formatting (CI fails on a diff)
 git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
@@ -72,7 +72,9 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
   camera and lock pins (README "Next milestones").
 - `net_comm` has a Wi-Fi station (off when the SSID is empty) but no MQTT
   yet; the planned contract is `docs/mqtt_contract.md`.
-- `video_stream` (HTTP MJPEG) has no login; anyone on the Wi-Fi can watch.
+- The app API (`board_api`, port 80) and the stream (`video_stream`, port 81)
+  need the app token, but over plain HTTP: anyone sniffing the Wi-Fi can
+  read it. Never show the token on the OLED (it faces the visitor).
 - With Wi-Fi on, the app uses ~83% of the 4 MB `factory` partition. Grow it
   in `partitions.csv` (8 MB flash has room) before adding MQTT/TLS.
 - An empty Wi-Fi SSID lets the compiler drop all Wi-Fi/stream code, so a

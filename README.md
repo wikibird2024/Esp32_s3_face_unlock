@@ -47,7 +47,9 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | `feedback` | Beeps and an RGB LED (WS2812) from the events (listens only) | manual |
 | `oled_display` | 0.66" 64x48 SSD1306 OLED on I2C: lock status from the events (listens only) | host (text drawing) |
 | `net_comm` | Wi-Fi station (optional); listens to events, MQTT is the next milestone | — |
-| `video_stream` | Live camera view over HTTP (`/`, `/stream`, `/jpg`) | manual |
+| `video_stream` | Live camera view over HTTP on port 81 (`/`, `/stream`, `/jpg`), token required | manual |
+| `board_api` | JSON API for the phone app on port 80 (`/api/status`), token required | manual |
+| `api_token` | The app token: made once, kept in NVS, checked on every request | host (format, compare, header) |
 | `keypad_input` | Stub, not started (next milestone) | — |
 
 ## Hardware
@@ -103,22 +105,25 @@ matching more reliable.
 
 Set menuconfig → *Network (net_comm)* → Wi-Fi name and password (they stay
 in `sdkconfig`, which git ignores). After boot, `status` shows the IP;
-open `http://<ip>/` in a browser or phone on the same Wi-Fi for a live
-MJPEG view (`/jpg` for a snapshot). The HTTP server handles one request
-at a time, so while someone watches, other requests get no answer until
-that viewer leaves. There is no
-login on the stream yet — anyone on the Wi-Fi can watch (see the
-hardening milestone). Face recognition keeps running while streaming.
+the boot log (or the console `token`) shows the **app token**. Open
+`http://<ip>:81/?token=<token>` in a browser on the same Wi-Fi for a live
+MJPEG view (`/jpg` for a snapshot). The stream server handles one viewer
+at a time; the app API on port 80 is a separate server, so it keeps
+answering while someone watches. `token new` makes a new token (the app
+then needs it again). The token goes over plain HTTP: fine on a home
+Wi-Fi, not on a shared one. Face recognition keeps running while
+streaming.
 
 ### Phone app (`mobile_app/`, Flutter)
 
-v1 shows the live view and saves the board address; the Approve and
-History tabs are placeholders for the MQTT phases. Without a board, a fake
-one on the PC serves the same `/stream` and `/jpg`:
+v1 shows the live view and saves the board address and token; the Approve
+and History tabs are placeholders. Without a board, a fake one on the PC
+serves the same API (port N) and stream (port N+1), with the same token
+check:
 
 ```bash
 cd mobile_app
-python3 tool/fake_board.py --port 8080    # address in the app: 127.0.0.1:8080
+python3 tool/fake_board.py --port 8080    # app: 127.0.0.1:8080, token AB9A9JQ2
 flutter run -d linux                      # or plug in a phone: flutter run
 flutter analyze && flutter test
 ```
@@ -162,7 +167,7 @@ and builds the firmware and the on-device test app in the
 | Milestone | Content |
 |---|---|
 | Phone approval (phases, see `docs/mqtt_contract.md`) | A: MQTT in `net_comm` → B: Flutter app (`mobile_app/`, live view done) → C: pairing + HMAC-signed answers → D: push notifications |
-| Hardening | Login on the video stream, console `unlock` off in release, admin-only enroll, flash + NVS encryption |
+| Hardening | HTTPS for the app API and stream, console `unlock` off in release, admin-only enroll, flash + NVS encryption |
 | Network + security | Wi-Fi provisioning, MQTT over TLS in `net_comm`, OTA (needs a two-slot partition table), NVS encryption for faces, secure boot |
 | Keypad | Matrix or single-button keypad: pick GPIOs in Kconfig clear of the camera/lock pins, scan + debounce, key/PIN API or events, PIN unlock with lockout |
 | Liveness | Reject photos of a face (blink check or IR camera) |

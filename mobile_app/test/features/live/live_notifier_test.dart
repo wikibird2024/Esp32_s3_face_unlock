@@ -11,12 +11,16 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _jpeg = [0xFF, 0xD8, 7, 7, 0xFF, 0xD9];
+const _token = 'AB9A9JQ2';
 
 Future<ProviderContainer> _container({
   required String address,
   required MockClientStreamHandler board,
 }) async {
-  SharedPreferences.setMockInitialValues({'board_address': address});
+  SharedPreferences.setMockInitialValues({
+    'board_address': address,
+    'board_token': _token,
+  });
   final preferences = await SharedPreferences.getInstance();
   final container = ProviderContainer(
     overrides: [
@@ -48,11 +52,11 @@ void main() {
 
   test('frames from /stream make the state live', () async {
     final body = StreamController<List<int>>();
-    late Uri requested;
+    late http.BaseRequest requested;
     final container = await _container(
       address: '127.0.0.1:8080',
       board: (request, _) async {
-        requested = request.url;
+        requested = request;
         return http.StreamedResponse(
           body.stream,
           200,
@@ -74,7 +78,9 @@ void main() {
     body.add(_jpeg);
     await pumpEventQueue();
 
-    expect(requested.toString(), 'http://127.0.0.1:8080/stream');
+    // Stream server = API port + 1, with the token.
+    expect(requested.url.toString(), 'http://127.0.0.1:8081/stream');
+    expect(requested.headers['Authorization'], 'Bearer $_token');
     final live = container.read(liveProvider);
     expect(live.status, LiveStatus.live);
     expect(live.frame, _jpeg);
@@ -96,6 +102,21 @@ void main() {
     expect(live.retryIn, const Duration(seconds: 1));
   });
 
+  test('401 from the stream asks to check the token', () async {
+    final container = await _container(
+      address: '10.0.0.5',
+      board: (_, _) async =>
+          http.StreamedResponse(Stream.value(utf8.encode('{}')), 401),
+    );
+    addTearDown(container.dispose);
+
+    await container.read(liveProvider.notifier).start();
+
+    final live = container.read(liveProvider);
+    expect(live.status, LiveStatus.offline);
+    expect(live.message, 'Wrong token: check Settings');
+  });
+
   test('stream ending means offline', () async {
     final container = await _container(
       address: '10.0.0.5',
@@ -111,11 +132,11 @@ void main() {
   });
 
   test('snapshot while stopped asks the board for /jpg', () async {
-    late Uri requested;
+    late http.BaseRequest requested;
     final container = await _container(
       address: '10.0.0.5',
       board: (request, _) async {
-        requested = request.url;
+        requested = request;
         return http.StreamedResponse(Stream.value(_jpeg), 200);
       },
     );
@@ -123,7 +144,8 @@ void main() {
 
     final jpeg = await container.read(liveProvider.notifier).takeSnapshot();
 
-    expect(requested.toString(), 'http://10.0.0.5/jpg');
+    expect(requested.url.toString(), 'http://10.0.0.5:81/jpg');
+    expect(requested.headers['Authorization'], 'Bearer $_token');
     expect(jpeg, _jpeg);
   });
 

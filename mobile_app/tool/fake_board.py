@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
-"""Fake face-unlock board: serves the same HTTP endpoints as the firmware's
-video_stream component, so the app can be tested without hardware.
+"""Fake face-unlock board: serves the same HTTP endpoints as the firmware,
+so the app can be tested without hardware.
 
-  /        small viewer page
-  /stream  MJPEG, same part format and boundary as the firmware
-  /jpg     one frame
-  One request at a time, like esp_http_server: while someone watches
-  /stream, other requests get no answer until that viewer leaves.
+  port N    (firmware: board_api, port 80)
+    /api/status  JSON status
+  port N+1  (firmware: video_stream, port 81)
+    /        small viewer page; open /?token=<token> in a browser
+    /stream  MJPEG, same part format and boundary as the firmware
+    /jpg     one frame
+
+Every endpoint except / needs the token, as "Authorization: Bearer <token>"
+or "?token=<token>", like the firmware. Each port answers one request at a
+time, like esp_http_server: while someone watches /stream, the stream port
+does not answer, but the API port does.
 
 Frames are the JPEG files in tool/fake_frames/, played in a loop.
 Standard library only.
 
-  python3 tool/fake_board.py --port 8080
+  python3 tool/fake_board.py --port 8080 --token AB9A9JQ2
 """
 
 import argparse
+import json
 import pathlib
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 PART_BOUNDARY = "frameboundary"
 VIEWER_PAGE = (
     b"<!doctype html><html><body style='background:#111;color:#eee'>"
-    b"<h3>Fake face unlock board</h3><img src='/stream'></body></html>"
+    b"<h3>Fake face unlock board</h3><img id='live'>"
+    b"<script>document.getElementById('live').src='/stream'+location.search;"
+    b"</script></body></html>"
 )
+UNAUTHORIZED = b'{"error":"missing or wrong token"}'
 
 frames = []
 frame_delay_s = 0.1
+token = ""
 
 
 class BoardHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/":
-            self.send_body(200, "text/html", VIEWER_PAGE)
-        elif self.path == "/jpg":
-            frame = frames[int(time.time() / frame_delay_s) % len(frames)]
-            self.send_body(200, "image/jpeg", frame)
-        elif self.path == "/stream":
-            self.send_stream()
-        else:
-            self.send_body(404, "text/plain", b"not found")
+    def has_token(self):
+        header = self.headers.get("Authorization", "")
+        if header.lower().startswith("bearer ") and header[7:] == token:
+            return True
+        query = parse_qs(urlsplit(self.path).query)
+        return query.get("token", [""])[0] == token
 
     def send_body(self, status, content_type, body):
         self.send_response(status)
@@ -47,6 +56,46 @@ class BoardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_unauthorized(self):
+        self.send_body(401, "application/json", UNAUTHORIZED)
+
+
+class ApiHandler(BoardHandler):
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path != "/api/status":
+            self.send_body(404, "text/plain", b"not found")
+        elif not self.has_token():
+            self.send_unauthorized()
+        else:
+            status = {
+                "version": "fake",
+                "recognition": True,
+                "state": "IDLE",
+                "waiting_request": 0,
+                "door": "locked",
+                "faces": 1,
+                "faces_max": 20,
+                "ip": self.server.server_address[0],
+            }
+            self.send_body(200, "application/json", json.dumps(status).encode())
+
+
+class StreamHandler(BoardHandler):
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path == "/":
+            self.send_body(200, "text/html", VIEWER_PAGE)
+        elif path not in ("/jpg", "/stream"):
+            self.send_body(404, "text/plain", b"not found")
+        elif not self.has_token():
+            self.send_unauthorized()
+        elif path == "/jpg":
+            frame = frames[int(time.time() / frame_delay_s) % len(frames)]
+            self.send_body(200, "image/jpeg", frame)
+        else:
+            self.send_stream()
 
     def send_stream(self):
         try:
@@ -73,9 +122,10 @@ class BoardHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    global frame_delay_s
+    global frame_delay_s, token
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=8080, help="API port; stream is +1")
+    parser.add_argument("--token", default="AB9A9JQ2")
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument(
         "--frames",
@@ -90,11 +140,16 @@ def main():
     if not frames:
         parser.error(f"no .jpg files in {args.frames}")
     frame_delay_s = 1.0 / args.fps
+    token = args.token
 
-    # Not ThreadingHTTPServer: the board answers one request at a time.
-    server = HTTPServer(("0.0.0.0", args.port), BoardHandler)
-    print(f"fake board on http://0.0.0.0:{args.port}/  ({len(frames)} frames)")
-    server.serve_forever()
+    # Not ThreadingHTTPServer: each board server answers one request at a time.
+    api_server = HTTPServer(("0.0.0.0", args.port), ApiHandler)
+    stream_server = HTTPServer(("0.0.0.0", args.port + 1), StreamHandler)
+    threading.Thread(target=api_server.serve_forever, daemon=True).start()
+    print(f"fake board: API http://0.0.0.0:{args.port}/api/status, "
+          f"stream http://0.0.0.0:{args.port + 1}/?token={token} "
+          f"({len(frames)} frames)")
+    stream_server.serve_forever()
 
 
 if __name__ == "__main__":

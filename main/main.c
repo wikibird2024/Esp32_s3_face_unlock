@@ -1,4 +1,5 @@
 #include "ai_face_recognition.h"
+#include "board_api.h"
 #include "camera_driver.h"
 #include "console_commands.h"
 #include "door_control.h"
@@ -64,6 +65,11 @@ void app_main(void) {
              "Recognition NOT running (%s). Door stays locked; console "
              "is still available for diagnosis.",
              esp_err_to_name(err));
+  }
+  /* Even without recognition: the app can still see the status. Before
+     the stream, which needs the token this loads. */
+  if (board_api_start(face_db) != ESP_OK) {
+    ESP_LOGW(TAG, "No app API; everything else works");
   }
   if (err == ESP_OK && video_stream_start() != ESP_OK) {
     ESP_LOGW(TAG, "Live view not running; everything else works");

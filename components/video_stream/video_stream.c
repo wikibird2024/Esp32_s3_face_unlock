@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "api_token_store.h"
 #include "camera_driver.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
@@ -18,6 +19,12 @@ static const char *TAG = "video_stream";
 
 #define FRAME_DELAY_MS (1000 / CONFIG_VIDEO_STREAM_MAX_FPS)
 #define PART_BOUNDARY "frameboundary"
+/* The API server (board_api) has port 80; the app finds the stream at
+   API port + 1. */
+#define STREAM_PORT 81
+/* One viewer at a time anyway (see handle_stream); 2 lets a new viewer
+   connect while the old socket is purged. */
+#define MAX_OPEN_SOCKETS 2
 
 static const char VIEWER_PAGE[] =
     "<!doctype html><html><head><meta charset=\"utf-8\">"
@@ -26,8 +33,11 @@ static const char VIEWER_PAGE[] =
     "<style>body{margin:0;background:#111;color:#eee;font-family:sans-serif;"
     "text-align:center}img{width:100%;max-width:640px}</style></head>"
     "<body><h3>Face unlock camera</h3>"
-    "<img src=\"/stream\" alt=\"live camera\">"
-    "<p><a style=\"color:#8cf\" href=\"/jpg\">snapshot</a></p>"
+    "<img id=\"live\" alt=\"live camera\">"
+    "<p><a id=\"snap\" style=\"color:#8cf\">snapshot</a></p>"
+    /* Open as http://<ip>:81/?token=<token>; pass the token on. */
+    "<script>document.getElementById('live').src='/stream'+location.search;"
+    "document.getElementById('snap').href='/jpg'+location.search;</script>"
     "</body></html>";
 
 static esp_err_t handle_viewer_page(httpd_req_t *request) {
@@ -48,6 +58,9 @@ static esp_err_t send_current_frame_jpeg(httpd_req_t *request,
 }
 
 static esp_err_t handle_snapshot(httpd_req_t *request) {
+  if (!api_token_store_request_is_allowed(request)) {
+    return api_token_store_send_unauthorized(request);
+  }
   uint8_t *jpeg = NULL;
   size_t length_bytes = 0;
   if (send_current_frame_jpeg(request, &jpeg, &length_bytes) != ESP_OK) {
@@ -65,6 +78,9 @@ static esp_err_t handle_snapshot(httpd_req_t *request) {
  * runs no other request is answered: one viewer at a time, and the next
  * one waits until this viewer leaves. */
 static esp_err_t handle_stream(httpd_req_t *request) {
+  if (!api_token_store_request_is_allowed(request)) {
+    return api_token_store_send_unauthorized(request);
+  }
   ESP_LOGI(TAG, "Viewer connected");
   httpd_resp_set_type(request,
                       "multipart/x-mixed-replace;boundary=" PART_BOUNDARY);
@@ -103,8 +119,11 @@ esp_err_t video_stream_start(void) {
   }
 
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = STREAM_PORT;
   config.core_id = 0; /* recognition owns core 1 */
   config.stack_size = 8192;
+  config.max_open_sockets = MAX_OPEN_SOCKETS;
+  config.lru_purge_enable = true;
 
   httpd_handle_t server = NULL;
   ESP_RETURN_ON_ERROR(httpd_start(&server, &config), TAG, "http server");
@@ -118,7 +137,8 @@ esp_err_t video_stream_start(void) {
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &routes[i]), TAG,
                         "route %s", routes[i].uri);
   }
-  ESP_LOGI(TAG, "Live view on http://<ip>/ (port %d)", config.server_port);
+  ESP_LOGI(TAG, "Live view on http://<ip>:%d/?token=<app token>",
+           config.server_port);
   return ESP_OK;
 }
 

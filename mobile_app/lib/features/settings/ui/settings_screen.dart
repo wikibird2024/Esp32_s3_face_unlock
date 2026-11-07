@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/board/board_address.dart';
+import '../../../core/board/board_api.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -16,22 +17,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _addressField = TextEditingController(
     text: ref.read(boardAddressProvider),
   );
+  late final TextEditingController _tokenField = TextEditingController(
+    text: ref.read(boardTokenProvider),
+  );
   bool _isTesting = false;
 
   @override
   void dispose() {
     _addressField.dispose();
+    _tokenField.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     await ref.read(boardAddressProvider.notifier).save(_addressField.text);
+    await ref.read(boardTokenProvider.notifier).save(_tokenField.text);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Saved')));
   }
 
-  /// Asks the board for its viewer page `/`.
+  /// Asks the board for `/api/status` with the typed address and token.
   Future<void> _testConnection() async {
     final messenger = ScaffoldMessenger.of(context);
     final baseUri = boardBaseUri(_addressField.text);
@@ -45,12 +51,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final client = ref.read(httpClientFactoryProvider)();
     String result;
     try {
-      final response = await client
-          .get(baseUri)
-          .timeout(const Duration(seconds: 3));
-      result = response.statusCode == 200
-          ? '🟢 Board answered'
-          : '🔴 Board answered HTTP ${response.statusCode}';
+      final status = await fetchBoardStatus(
+        client,
+        baseUri,
+        normalizeToken(_tokenField.text),
+      );
+      result = '🟢 Connected: ${_describe(status)}';
+    } on BoardAuthException {
+      result = '🔴 Wrong token: see the board log or console "token"';
+    } on BoardHttpException catch (error) {
+      result = '🔴 $error (firmware too old?)';
     } on TimeoutException {
       result = '🔴 No answer in 3 s';
     } catch (error) {
@@ -61,6 +71,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) return;
     setState(() => _isTesting = false);
     messenger.showSnackBar(SnackBar(content: Text(result)));
+  }
+
+  static String _describe(BoardStatus status) {
+    final faces = status.faceCount == null
+        ? 'recognition off'
+        : '${status.faceCount} face${status.faceCount == 1 ? '' : 's'}';
+    final door = status.isDoorOpen ? 'door open' : 'door locked';
+    return '$faces, $door';
   }
 
   @override
@@ -80,6 +98,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             keyboardType: TextInputType.url,
             autocorrect: false,
+            onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _tokenField,
+            decoration: const InputDecoration(
+              labelText: 'Token',
+              hintText: 'AB9A9JQ2',
+              helperText: 'From the board log or the console "token"',
+              border: OutlineInputBorder(),
+            ),
+            textCapitalization: TextCapitalization.characters,
+            autocorrect: false,
+            enableSuggestions: false,
             onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: 16),

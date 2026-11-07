@@ -108,11 +108,17 @@ class LiveNotifier extends Notifier<LiveState> {
     state = LiveState(LiveStatus.connecting, frame: state.frame);
     final client = ref.read(httpClientFactoryProvider)();
     _client = client;
+    final request = http.Request(
+      'GET',
+      boardStreamUri(baseUri).replace(path: '/stream'),
+    )..headers.addAll(boardAuthHeaders(ref.read(boardTokenProvider)));
     try {
-      final response = await client
-          .send(http.Request('GET', baseUri.replace(path: '/stream')))
-          .timeout(connectTimeout);
+      final response = await client.send(request).timeout(connectTimeout);
       if (_client != client) return; // stopped while connecting
+      if (response.statusCode == 401) {
+        _failAndRetry(LiveStatus.offline, 'Wrong token: check Settings');
+        return;
+      }
       if (response.statusCode != 200) {
         _failAndRetry(
           LiveStatus.offline,
@@ -134,8 +140,8 @@ class LiveNotifier extends Notifier<LiveState> {
           );
       _restartFrameTimer();
     } on TimeoutException {
-      // The board's HTTP server is one task: while another viewer streams,
-      // it does not answer at all.
+      // The board's stream server is one task: while another viewer
+      // streams, it does not answer at all.
       if (_client == client) {
         _failAndRetry(
           LiveStatus.offline,
@@ -165,8 +171,8 @@ class LiveNotifier extends Notifier<LiveState> {
     _restartFrameTimer();
   }
 
-  /// While live, the board's single HTTP task is busy with the stream, so the
-  /// snapshot is the current frame. Otherwise ask the board for `/jpg`.
+  /// While live, the board's stream server task is busy with the stream, so
+  /// the snapshot is the current frame. Otherwise ask the board for `/jpg`.
   Future<Uint8List> takeSnapshot() async {
     final frame = state.frame;
     if (state.status == LiveStatus.live && frame != null) return frame;
@@ -177,7 +183,10 @@ class LiveNotifier extends Notifier<LiveState> {
     final client = ref.read(httpClientFactoryProvider)();
     try {
       final response = await client
-          .get(baseUri.replace(path: '/jpg'))
+          .get(
+            boardStreamUri(baseUri).replace(path: '/jpg'),
+            headers: boardAuthHeaders(ref.read(boardTokenProvider)),
+          )
           .timeout(connectTimeout);
       if (response.statusCode != 200) {
         throw StateError('Board answered HTTP ${response.statusCode}');

@@ -37,6 +37,10 @@ add_host_test(test_face_db
   SOURCES test_face_db.c ${REPO_ROOT}/components/face_db/face_db.c
   INCLUDES ${REPO_ROOT}/components/face_db)
 
+add_host_test(test_api_token
+  SOURCES test_api_token.c ${REPO_ROOT}/components/api_token/api_token.c
+  INCLUDES ${REPO_ROOT}/components/api_token)
+
 add_host_test(test_display_text
   SOURCES test_display_text.c ${REPO_ROOT}/components/oled_display/display_text.c
   INCLUDES ${REPO_ROOT}/components/oled_display)

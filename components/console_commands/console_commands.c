@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "api_token_store.h"
 #include "door_control.h"
 #include "esp_check.h"
 #include "esp_console.h"
@@ -185,6 +186,23 @@ static int command_deny(int argc, char **argv) {
   return command_answer(argc, argv, false);
 }
 
+/* Prints the app token; "token new" makes a new one first. */
+static int command_token(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "new") == 0) {
+    if (report(api_token_store_renew()) != 0) {
+      return 1;
+    }
+    printf("New token made: the app needs it again.\n");
+  } else if (argc != 1) {
+    printf("Usage: token | token new\n");
+    return 1;
+  }
+  char token[API_TOKEN_LEN + 1];
+  api_token_store_get(token);
+  printf("%s\n", token[0] != '\0' ? token : "none yet (Wi-Fi off?)");
+  return 0;
+}
+
 static esp_err_t register_commands(void) {
   const esp_console_cmd_t commands[] = {
       {.command = "status",
@@ -217,6 +235,10 @@ static esp_err_t register_commands(void) {
        .help = "Deny a face waiting for approval: deny <id>",
        .hint = "<id>",
        .func = command_deny},
+      {.command = "token",
+       .help = "Show the app token; 'token new' replaces it",
+       .hint = "[new]",
+       .func = command_token},
   };
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&commands[i]), TAG,

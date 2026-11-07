@@ -33,6 +33,40 @@ class BoardAddress extends Notifier<String> {
   }
 }
 
+/// The app token the board prints in its boot log (console: `token`).
+/// Empty until set in Settings.
+final boardTokenProvider = NotifierProvider<BoardToken, String>(
+  BoardToken.new,
+);
+
+/// shortcut: kept in SharedPreferences (app-private on Android), not secure
+/// storage; move it there with phone pairing.
+class BoardToken extends Notifier<String> {
+  static const _storageKey = 'board_token';
+
+  @override
+  String build() =>
+      ref.watch(sharedPreferencesProvider).getString(_storageKey) ?? '';
+
+  Future<void> save(String token) async {
+    final cleaned = normalizeToken(token);
+    await ref.read(sharedPreferencesProvider).setString(_storageKey, cleaned);
+    state = cleaned;
+  }
+}
+
+/// ` ab9a-9jq2 ` → `AB9A9JQ2`: forgives how people type a token off a log.
+String normalizeToken(String token) =>
+    token.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+
+/// Login header for every board request; empty when no token is set.
+Map<String, String> boardAuthHeaders(String token) =>
+    token.isEmpty ? const {} : {'Authorization': 'Bearer $token'};
+
+/// The video stream has its own server at the API port + 1 (board 80 → 81,
+/// fake board 8080 → 8081), so an open stream never blocks the API.
+Uri boardStreamUri(Uri baseUri) => baseUri.replace(port: baseUri.port + 1);
+
 /// `192.168.1.50` → `http://192.168.1.50`. Null when empty or not a URL.
 Uri? boardBaseUri(String address) {
   final trimmed = address.trim();
