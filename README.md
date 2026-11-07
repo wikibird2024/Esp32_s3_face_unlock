@@ -48,7 +48,8 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | `oled_display` | 0.66" 64x48 SSD1306 OLED on I2C: lock status from the events (listens only) | host (text drawing) |
 | `net_comm` | Wi-Fi station (optional); listens to events, MQTT is the next milestone | — |
 | `video_stream` | Live camera view over HTTP on port 81 (`/`, `/stream`, `/jpg`), token required | manual |
-| `board_api` | JSON API for the phone app on port 80 (`/api/status`), token required | manual |
+| `board_api` | JSON API for the phone app on port 80 (status, events, faces, unlock, approval, rules, camera), token required | host (event log) |
+| `settings_store` | Saves the app's rule and camera settings in NVS | — |
 | `api_token` | The app token: made once, kept in NVS, checked on every request | host (format, compare, header) |
 | `keypad_input` | Stub, not started (next milestone) | — |
 
@@ -116,14 +117,19 @@ streaming.
 
 ### Phone app (`mobile_app/`, Flutter)
 
-v1 shows the live view and saves the board address and token; the Approve
-and History tabs are placeholders. Without a board, a fake one on the PC
+Tabs: **Live** (video, snapshot, Unlock), **Approve** (Open / Deny a known
+face when "Wait for approval" is above 0), **Faces** (list, add by standing
+in front of the camera, swipe to delete), **History** (last 50 events since
+the board started) and **Settings** (address, token, camera picture,
+unlock rules). Rules and camera settings saved from the app live in NVS
+and win over the menuconfig values. Without a board, a fake one on the PC
 serves the same API (port N) and stream (port N+1), with the same token
-check:
+check (`POST /fake/visitor` makes a known face ask for approval):
 
 ```bash
 cd mobile_app
 python3 tool/fake_board.py --port 8080    # app: 127.0.0.1:8080, token AB9A9JQ2
+python3 tool/api_check.py --host <board ip> --token <token>   # API check, read-only
 flutter run -d linux                      # or plug in a phone: flutter run
 flutter analyze && flutter test
 ```

@@ -6,6 +6,8 @@
 #include "esp_camera.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "settings_store.h"
 
 static const char *TAG = "camera_driver";
 
@@ -21,7 +23,59 @@ static const char *TAG = "camera_driver";
 #define HMIRROR_ENABLED 0
 #endif
 
+#define SETTINGS_KEY "camera"
+#define DEFAULT_JPEG_QUALITY 80
+
 static bool s_is_initialised;
+/* Written by camera_driver_init/set_settings, read by the stream task. */
+static camera_settings_t s_settings = {.vflip = VFLIP_ENABLED,
+                                       .hmirror = HMIRROR_ENABLED,
+                                       .jpeg_quality = DEFAULT_JPEG_QUALITY};
+static portMUX_TYPE s_settings_lock = portMUX_INITIALIZER_UNLOCKED;
+
+/* esp32-camera setters return 0 on success; a missing one counts as a
+   failure instead of a crash. */
+static int call_setter(int (*setter)(sensor_t *, int), sensor_t *sensor,
+                       int value) {
+  return setter == NULL ? -1 : setter(sensor, value);
+}
+
+static esp_err_t apply_to_sensor(const camera_settings_t *settings) {
+  sensor_t *sensor = esp_camera_sensor_get();
+  ESP_RETURN_ON_FALSE(sensor != NULL, ESP_ERR_INVALID_STATE, TAG, "no sensor");
+  const int failure_count =
+      (call_setter(sensor->set_brightness, sensor, settings->brightness) != 0) +
+      (call_setter(sensor->set_contrast, sensor, settings->contrast) != 0) +
+      (call_setter(sensor->set_saturation, sensor, settings->saturation) != 0) +
+      (call_setter(sensor->set_sharpness, sensor, settings->sharpness) != 0) +
+      (call_setter(sensor->set_ae_level, sensor, settings->exposure) != 0) +
+      (call_setter(sensor->set_denoise, sensor, settings->denoise) != 0) +
+      (call_setter(sensor->set_vflip, sensor, settings->vflip) != 0) +
+      (call_setter(sensor->set_hmirror, sensor, settings->hmirror) != 0);
+  ESP_RETURN_ON_FALSE(failure_count == 0, ESP_FAIL, TAG,
+                      "sensor refused %d settings", failure_count);
+  return ESP_OK;
+}
+
+/* Settings saved from the app are applied in full. Otherwise only the
+   menuconfig flips are set, so the picture stays as the sensor makes it. */
+static void apply_start_settings(sensor_t *sensor) {
+  camera_settings_t settings = {.vflip = VFLIP_ENABLED,
+                                .hmirror = HMIRROR_ENABLED,
+                                .jpeg_quality = DEFAULT_JPEG_QUALITY};
+  camera_settings_t saved;
+  if (settings_store_load(SETTINGS_KEY, &saved, sizeof(saved)) == ESP_OK &&
+      camera_settings_are_valid(&saved) && apply_to_sensor(&saved) == ESP_OK) {
+    settings = saved;
+    ESP_LOGI(TAG, "Picture settings from the app (saved)");
+  } else {
+    sensor->set_vflip(sensor, VFLIP_ENABLED);
+    sensor->set_hmirror(sensor, HMIRROR_ENABLED);
+  }
+  taskENTER_CRITICAL(&s_settings_lock);
+  s_settings = settings;
+  taskEXIT_CRITICAL(&s_settings_lock);
+}
 
 static framesize_t configured_frame_size(void) {
 #if CONFIG_CAMERA_FRAME_SIZE_QVGA
@@ -83,8 +137,7 @@ esp_err_t camera_driver_init(void) {
   sensor_t *sensor = esp_camera_sensor_get();
   if (sensor != NULL) {
     ESP_LOGI(TAG, "Sensor PID 0x%04x", sensor->id.PID);
-    sensor->set_vflip(sensor, VFLIP_ENABLED);
-    sensor->set_hmirror(sensor, HMIRROR_ENABLED);
+    apply_start_settings(sensor);
   }
   s_is_initialised = true;
   ESP_LOGI(TAG, "Camera ready");
@@ -138,4 +191,27 @@ void camera_driver_release_frame(camera_frame_t *frame) {
   }
   esp_camera_fb_return((camera_fb_t *)frame->driver_frame);
   memset(frame, 0, sizeof(*frame));
+}
+
+esp_err_t camera_driver_get_settings(camera_settings_t *out_settings) {
+  ESP_RETURN_ON_FALSE(out_settings != NULL, ESP_ERR_INVALID_ARG, TAG,
+                      "no output");
+  ESP_RETURN_ON_FALSE(s_is_initialised, ESP_ERR_INVALID_STATE, TAG,
+                      "not initialised");
+  taskENTER_CRITICAL(&s_settings_lock);
+  *out_settings = s_settings;
+  taskEXIT_CRITICAL(&s_settings_lock);
+  return ESP_OK;
+}
+
+esp_err_t camera_driver_set_settings(const camera_settings_t *settings) {
+  ESP_RETURN_ON_FALSE(camera_settings_are_valid(settings), ESP_ERR_INVALID_ARG,
+                      TAG, "settings out of range");
+  ESP_RETURN_ON_FALSE(s_is_initialised, ESP_ERR_INVALID_STATE, TAG,
+                      "not initialised");
+  ESP_RETURN_ON_ERROR(apply_to_sensor(settings), TAG, "apply");
+  taskENTER_CRITICAL(&s_settings_lock);
+  s_settings = *settings;
+  taskEXIT_CRITICAL(&s_settings_lock);
+  return settings_store_save(SETTINGS_KEY, settings, sizeof(*settings));
 }

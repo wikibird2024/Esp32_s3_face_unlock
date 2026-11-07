@@ -3,8 +3,18 @@
  * @brief JSON API for the phone app on port 80 (the video stream has its
  *        own server on port 81, so an open stream never blocks the API).
  *
- * Every request needs the app token (see api_token_store.h). Today:
- *   GET /api/status  version, state, door, faces, ip, waiting approval
+ * Every request needs the app token (see api_token_store.h):
+ *   GET    /api/status                 state, door, faces, waiting approval
+ *   GET    /api/events?after=<seq>     last 50 events (History, live news)
+ *   GET    /api/faces                  enrolled faces
+ *   POST   /api/faces/enroll {name}    save the next face seen
+ *   POST   /api/faces/enroll/cancel
+ *   DELETE /api/faces/<id>
+ *   POST   /api/door/unlock            like the console "unlock"
+ *   POST   /api/approval {request, approve}
+ *   GET|PUT /api/rules                 unlock rules (saved in NVS)
+ *   GET|PUT /api/camera                picture settings (saved in NVS)
+ * Actions go through system_logic's queue, never straight to the lock.
  * Starts only when Wi-Fi is on.
  */
 #pragma once

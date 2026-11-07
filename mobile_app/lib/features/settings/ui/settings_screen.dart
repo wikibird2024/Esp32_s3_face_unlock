@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/board/board_address.dart';
 import '../../../core/board/board_api.dart';
+import 'board_settings_form.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -48,14 +49,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     setState(() => _isTesting = true);
-    final client = ref.read(httpClientFactoryProvider)();
+    // The typed address and token, not the saved ones: test before Save.
+    final api = BoardApi(
+      baseUri: baseUri,
+      token: normalizeToken(_tokenField.text),
+      newClient: ref.read(httpClientFactoryProvider),
+    );
     String result;
     try {
-      final status = await fetchBoardStatus(
-        client,
-        baseUri,
-        normalizeToken(_tokenField.text),
-      );
+      final status = await api.status();
       result = '🟢 Connected: ${_describe(status)}';
     } on BoardAuthException {
       result = '🔴 Wrong token: see the board log or console "token"';
@@ -65,12 +67,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       result = '🔴 No answer in 3 s';
     } catch (error) {
       result = '🔴 Cannot reach the board: $error';
-    } finally {
-      client.close();
     }
     if (!mounted) return;
     setState(() => _isTesting = false);
     messenger.showSnackBar(SnackBar(content: Text(result)));
+  }
+
+  void _open(Widget page) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 
   static String _describe(BoardStatus status) {
@@ -124,6 +128,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: Text(_isTesting ? 'Testing…' : 'Test connection'),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.photo_camera),
+            title: const Text('Camera picture'),
+            subtitle: const Text('Brightness, exposure, flip, video quality'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _open(
+              const BoardSettingsForm(
+                title: 'Camera picture',
+                path: '/api/camera',
+                numbers: cameraFields,
+                switches: cameraSwitches,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.rule),
+            title: const Text('Unlock rules'),
+            subtitle: const Text('Match needed, door open time, approval'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _open(
+              const BoardSettingsForm(
+                title: 'Unlock rules',
+                path: '/api/rules',
+                numbers: rulesFields,
+              ),
+            ),
           ),
         ],
       ),

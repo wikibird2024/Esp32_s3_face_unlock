@@ -13,6 +13,7 @@
 #include "esp_err.h"
 #include "face_db.h"
 #include "unlock_state_machine.h"
+#include "unlock_rules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,7 +45,17 @@ esp_err_t system_logic_request_unlock(void);
 esp_err_t system_logic_request_approve(uint32_t request_id);
 esp_err_t system_logic_request_deny(uint32_t request_id);
 
+/** ESP_ERR_INVALID_STATE when recognition is not running. */
 esp_err_t system_logic_get_status(system_logic_status_t *out_status);
+
+/** Unlock rules in use (menuconfig values until the app saves others). */
+esp_err_t system_logic_get_rules(unlock_rules_t *out_rules);
+
+/**
+ * Check, save (NVS) and apply new rules. Any task; the recognition task
+ * applies them on its next loop. ESP_ERR_INVALID_ARG when out of range.
+ */
+esp_err_t system_logic_set_rules(const unlock_rules_t *rules);
 
 #ifdef __cplusplus
 }

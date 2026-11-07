@@ -10,11 +10,6 @@ menu "Video stream"
 
     if VIDEO_STREAM_ENABLE
 
-        config VIDEO_STREAM_JPEG_QUALITY
-            int "JPEG quality (1-100)"
-            range 1 100
-            default 80
-
         config VIDEO_STREAM_MAX_FPS
             int "Frame rate limit (frames per second)"
             range 1 30

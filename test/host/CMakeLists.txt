@@ -41,6 +41,15 @@ add_host_test(test_api_token
   SOURCES test_api_token.c ${REPO_ROOT}/components/api_token/api_token.c
   INCLUDES ${REPO_ROOT}/components/api_token)
 
+add_host_test(test_settings_and_events
+  SOURCES test_settings_and_events.c
+          ${REPO_ROOT}/components/board_api/event_log.c
+          ${REPO_ROOT}/components/system_logic/unlock_rules.c
+          ${REPO_ROOT}/components/camera_driver/camera_settings.c
+  INCLUDES ${REPO_ROOT}/components/board_api
+           ${REPO_ROOT}/components/system_logic
+           ${REPO_ROOT}/components/camera_driver)
+
 add_host_test(test_display_text
   SOURCES test_display_text.c ${REPO_ROOT}/components/oled_display/display_text.c
   INCLUDES ${REPO_ROOT}/components/oled_display)

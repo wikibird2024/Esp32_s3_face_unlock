@@ -28,6 +28,8 @@ cd test/target && idf.py build flash monitor
 # Phone app (Flutter, SDK in /mnt/storage/HaoTran/sdk)
 cd mobile_app && flutter analyze && flutter test
 python3 mobile_app/tool/fake_board.py --port 8080   # board stand-in (API 8080, stream 8081)
+# App API check: read-only on the real board; --full (changes things) only on the fake
+python3 mobile_app/tool/api_check.py --host <board ip> --token <token>
 
 # Formatting (CI fails on a diff)
 git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
@@ -47,6 +49,12 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
 - **Outputs go out as events**: `system_logic` posts `APP_EVENTS`
   (`app_events.h`) on the default loop; new listeners (MQTT, buzzer, display)
   register a handler instead of being called from `system_logic`.
+- **App API** (`board_api`, port 80): every action goes through
+  `system_logic_request_*()`, never straight to `door_control`. Unlock
+  rules and camera settings the app saves (`settings_store`, NVS
+  namespace `settings`) override the menuconfig values; keep the ranges in
+  `unlock_rules.h` / `camera_settings.h` equal to Kconfig and the app's
+  `board_settings_form.dart`.
 - **Door safety**: `door_control_open(hold_ms)` always arms an esp_timer
   that relocks; `app_main` initialises the lock before anything else.
   Never add a path that sets the lock open without the timer.

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/approval/ui/approval_screen.dart';
+import '../features/faces/ui/faces_screen.dart';
 import '../features/history/ui/history_screen.dart';
 import '../features/live/ui/live_screen.dart';
 import '../features/settings/ui/settings_screen.dart';
@@ -19,6 +20,7 @@ class _Tab {
 const _tabs = [
   _Tab('/live', 'Live', Icons.videocam, LiveScreen()),
   _Tab('/approve', 'Approve', Icons.how_to_reg, ApprovalScreen()),
+  _Tab('/faces', 'Faces', Icons.face, FacesScreen()),
   _Tab('/history', 'History', Icons.history, HistoryScreen()),
   _Tab('/settings', 'Settings', Icons.settings, SettingsScreen()),
 ];

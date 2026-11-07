@@ -52,8 +52,10 @@ static int command_status(int argc, char **argv) {
              (unsigned long)status.waiting_request_id,
              (unsigned long)status.waiting_request_id);
     }
+  } else {
+    printf("state            recognition not running (see boot log)\n");
   }
-  printf("door             %s\n", door_control_is_open() ? "open" : "locked");
+  printf("door           %s\n", door_control_is_open() ? "open" : "locked");
   if (net_comm_is_connected()) {
     char ip[NET_COMM_IP_MAX_LEN];
     net_comm_get_ip(ip);

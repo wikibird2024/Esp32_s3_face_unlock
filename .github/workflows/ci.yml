@@ -79,6 +79,12 @@ jobs:
         with:
           flutter-version: 3.47.7
           channel: stable
+      # The app's API contract, against the fake board (same script runs
+      # read-only against the real board on the bench).
+      - name: API check against the fake board
+        run: |
+          python3 tool/fake_board.py --port 18080 &
+          python3 tool/api_check.py --host 127.0.0.1:18080 --token AB9A9JQ2 --full
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test

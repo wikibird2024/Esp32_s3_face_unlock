@@ -50,8 +50,12 @@ static esp_err_t send_current_frame_jpeg(httpd_req_t *request,
                                          size_t *out_length_bytes) {
   camera_frame_t frame;
   ESP_RETURN_ON_ERROR(camera_driver_get_frame(&frame), TAG, "no frame");
-  esp_err_t err = camera_driver_frame_to_jpeg(
-      &frame, CONFIG_VIDEO_STREAM_JPEG_QUALITY, out_jpeg, out_length_bytes);
+  camera_settings_t settings;
+  esp_err_t err = camera_driver_get_settings(&settings);
+  if (err == ESP_OK) {
+    err = camera_driver_frame_to_jpeg(&frame, settings.jpeg_quality, out_jpeg,
+                                      out_length_bytes);
+  }
   camera_driver_release_frame(&frame);
   (void)request;
   return err;

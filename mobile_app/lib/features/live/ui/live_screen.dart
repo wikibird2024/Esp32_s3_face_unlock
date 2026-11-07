@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/board/board_api.dart';
 import '../../../core/device/keep_screen_on.dart';
 import '../live_notifier.dart';
 import 'live_full_screen.dart';
@@ -53,6 +54,37 @@ class _LiveScreenState extends ConsumerState<LiveScreen> {
     }
   }
 
+  /// Asks first: this opens the real door.
+  Future<void> _unlock() async {
+    final api = ref.read(boardApiProvider);
+    if (api == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final isConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Open the door?'),
+        content: const Text('The board locks it again by itself.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Open'),
+          ),
+        ],
+      ),
+    );
+    if (isConfirmed != true) return;
+    try {
+      await api.unlock();
+      messenger.showSnackBar(const SnackBar(content: Text('Door opening')));
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(boardErrorText(error))));
+    }
+  }
+
   void _openFullScreen() {
     Navigator.of(
       context,
@@ -99,21 +131,30 @@ class _LiveScreenState extends ConsumerState<LiveScreen> {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Wrap: three buttons do not fit one row on a narrow phone.
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 16,
+              runSpacing: 8,
               children: [
                 FilledButton.icon(
                   onPressed: isRunning ? notifier.stop : notifier.start,
                   icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
                   label: Text(isRunning ? 'Stop' : 'Start'),
                 ),
-                const SizedBox(width: 16),
                 OutlinedButton.icon(
                   onPressed: live.status == LiveStatus.noAddress
                       ? null
                       : _showSnapshot,
                   icon: const Icon(Icons.photo_camera),
                   label: const Text('Snapshot'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: live.status == LiveStatus.noAddress
+                      ? null
+                      : _unlock,
+                  icon: const Icon(Icons.lock_open),
+                  label: const Text('Unlock'),
                 ),
               ],
             ),

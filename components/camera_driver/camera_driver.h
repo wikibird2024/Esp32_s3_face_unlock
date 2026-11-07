@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "camera_settings.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,6 +47,15 @@ void camera_driver_release_frame(camera_frame_t *frame);
 esp_err_t camera_driver_frame_to_jpeg(const camera_frame_t *frame,
                                       uint8_t quality, uint8_t **out_jpeg,
                                       size_t *out_length_bytes);
+
+/** Picture settings in use. Any task. */
+esp_err_t camera_driver_get_settings(camera_settings_t *out_settings);
+
+/**
+ * Check, apply to the sensor at once, and save (NVS) new picture settings.
+ * ESP_ERR_INVALID_ARG when out of range. Any task.
+ */
+esp_err_t camera_driver_set_settings(const camera_settings_t *settings);
 
 #ifdef __cplusplus
 }

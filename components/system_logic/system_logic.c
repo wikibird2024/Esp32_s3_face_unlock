@@ -16,12 +16,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "settings_store.h"
 
 static const char *TAG = "system_logic";
 
 #define REQUEST_QUEUE_LENGTH 4
 #define CAMERA_RETRY_DELAY_MS 200
 #define LOOP_YIELD_MS 10
+#define RULES_SETTINGS_KEY "rules"
 #define ENROLL_BUTTON_GPIO CONFIG_SYSTEM_LOGIC_ENROLL_BUTTON_GPIO
 /* ESP32-S3: 22-25 do not exist, 26-37 are flash and octal PSRAM. */
 #if ENROLL_BUTTON_GPIO >= 22 && ENROLL_BUTTON_GPIO <= 37
@@ -34,12 +36,14 @@ typedef enum {
   REQUEST_UNLOCK,
   REQUEST_APPROVE,
   REQUEST_DENY,
+  REQUEST_SET_RULES,
 } request_type_t;
 
 typedef struct {
   request_type_t type;
   char name[FACE_DB_NAME_MAX_LEN + 1];
   uint32_t request_id;
+  unlock_rules_t rules;
 } request_t;
 
 /* What the current frame showed; used when carrying out an action. */
@@ -58,6 +62,9 @@ static char s_approval_name[FACE_DB_NAME_MAX_LEN + 1];
 
 static portMUX_TYPE s_status_lock = portMUX_INITIALIZER_UNLOCKED;
 static system_logic_status_t s_status;
+/* Written only by the recognition task (and once at start), under
+   s_status_lock; other tasks read it with system_logic_get_rules(). */
+static unlock_rules_t s_rules;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -97,7 +104,7 @@ static void carry_out(const unlock_action_t *action,
                                                         : s_approval_name;
     ESP_LOGI(TAG, "OPEN for '%s' (id %u, similarity %.2f)", name,
              action->face_id, action->similarity);
-    esp_err_t err = door_control_open(CONFIG_SYSTEM_LOGIC_UNLOCK_HOLD_MS);
+    esp_err_t err = door_control_open(s_rules.unlock_hold_ms);
     if (err != ESP_OK) {
       ESP_LOGE(TAG, "Door open failed: %s", esp_err_to_name(err));
       return;
@@ -210,6 +217,13 @@ static void handle_requests(void) {
   while (xQueueReceive(s_requests, &request, 0) == pdTRUE) {
     switch (request.type) {
     case REQUEST_ENROLL:
+      if (unlock_sm_state(&s_machine) == UNLOCK_STATE_ENROLLING) {
+        /* The running enroll keeps its name; this one is refused. */
+        ESP_LOGW(TAG, "Enroll '%s' refused: '%s' is enrolling", request.name,
+                 s_enroll_name);
+        post_event(APP_EVENT_ENROLL_FAILED, 0, 0.0f, request.name, 0);
+        break;
+      }
       memcpy(s_enroll_name, request.name, sizeof(s_enroll_name));
       handle_input(UNLOCK_INPUT_START_ENROLL, &no_frame, 0, 0.0f, 0);
       break;
@@ -228,6 +242,15 @@ static void handle_requests(void) {
       handle_input(request.type == REQUEST_APPROVE ? UNLOCK_INPUT_APPROVE
                                                    : UNLOCK_INPUT_DENY,
                    &no_frame, 0, 0.0f, request.request_id);
+      break;
+    case REQUEST_SET_RULES:
+      /* Applied here, not by the caller: this task owns the machine. */
+      taskENTER_CRITICAL(&s_status_lock);
+      s_rules = request.rules;
+      s_status.min_similarity = (float)s_rules.min_similarity_percent / 100.0f;
+      taskEXIT_CRITICAL(&s_status_lock);
+      unlock_rules_to_config(&request.rules, &s_machine.config);
+      ESP_LOGI(TAG, "New unlock rules applied");
       break;
     }
   }
@@ -335,6 +358,24 @@ static esp_err_t init_enroll_button(void) {
   return ESP_OK;
 }
 
+/* Rules saved from the app, or the menuconfig values. */
+static void load_rules(unlock_rules_t *out_rules) {
+  if (settings_store_load(RULES_SETTINGS_KEY, out_rules, sizeof(*out_rules)) ==
+          ESP_OK &&
+      unlock_rules_are_valid(out_rules)) {
+    ESP_LOGI(TAG, "Unlock rules from the app (saved)");
+    return;
+  }
+  *out_rules = (unlock_rules_t){
+      .min_similarity_percent = CONFIG_SYSTEM_LOGIC_MIN_SIMILARITY_PERCENT,
+      .confirm_frames = CONFIG_SYSTEM_LOGIC_CONFIRM_FRAMES,
+      .unlock_hold_ms = CONFIG_SYSTEM_LOGIC_UNLOCK_HOLD_MS,
+      .cooldown_ms = CONFIG_SYSTEM_LOGIC_COOLDOWN_MS,
+      .enroll_timeout_ms = CONFIG_SYSTEM_LOGIC_ENROLL_TIMEOUT_MS,
+      .approval_timeout_ms = CONFIG_SYSTEM_LOGIC_APPROVAL_TIMEOUT_MS,
+  };
+}
+
 esp_err_t system_logic_start(face_db_t *face_db) {
   ESP_RETURN_ON_FALSE(face_db != NULL, ESP_ERR_INVALID_ARG, TAG, "no face_db");
   ESP_RETURN_ON_FALSE(s_requests == NULL, ESP_ERR_INVALID_STATE, TAG,
@@ -350,15 +391,9 @@ esp_err_t system_logic_start(face_db_t *face_db) {
   ESP_RETURN_ON_FALSE(s_embedding != NULL, ESP_ERR_NO_MEM, TAG,
                       "no memory for embedding");
 
-  const unlock_config_t config = {
-      .min_similarity = CONFIG_SYSTEM_LOGIC_MIN_SIMILARITY_PERCENT / 100.0f,
-      .confirm_frame_count = CONFIG_SYSTEM_LOGIC_CONFIRM_FRAMES,
-      .unlock_hold_ms = CONFIG_SYSTEM_LOGIC_UNLOCK_HOLD_MS,
-      .cooldown_ms = CONFIG_SYSTEM_LOGIC_COOLDOWN_MS,
-      .enroll_timeout_ms = CONFIG_SYSTEM_LOGIC_ENROLL_TIMEOUT_MS,
-      .approval_timeout_ms = CONFIG_SYSTEM_LOGIC_APPROVAL_TIMEOUT_MS,
-      .first_request_id = esp_random(),
-  };
+  load_rules(&s_rules);
+  unlock_config_t config = {.first_request_id = esp_random()};
+  unlock_rules_to_config(&s_rules, &config);
   unlock_sm_init(&s_machine, &config);
   s_status.min_similarity = config.min_similarity;
   update_status();
@@ -425,8 +460,33 @@ esp_err_t system_logic_request_deny(uint32_t request_id) {
 esp_err_t system_logic_get_status(system_logic_status_t *out_status) {
   ESP_RETURN_ON_FALSE(out_status != NULL, ESP_ERR_INVALID_ARG, TAG,
                       "no output");
+  if (s_requests == NULL) {
+    return ESP_ERR_INVALID_STATE; /* not started: no log, polled often */
+  }
   taskENTER_CRITICAL(&s_status_lock);
   *out_status = s_status;
   taskEXIT_CRITICAL(&s_status_lock);
   return ESP_OK;
+}
+
+esp_err_t system_logic_get_rules(unlock_rules_t *out_rules) {
+  ESP_RETURN_ON_FALSE(out_rules != NULL, ESP_ERR_INVALID_ARG, TAG, "no output");
+  ESP_RETURN_ON_FALSE(s_requests != NULL, ESP_ERR_INVALID_STATE, TAG,
+                      "not started");
+  taskENTER_CRITICAL(&s_status_lock);
+  *out_rules = s_rules;
+  taskEXIT_CRITICAL(&s_status_lock);
+  return ESP_OK;
+}
+
+esp_err_t system_logic_set_rules(const unlock_rules_t *rules) {
+  ESP_RETURN_ON_FALSE(unlock_rules_are_valid(rules), ESP_ERR_INVALID_ARG, TAG,
+                      "rules out of range");
+  ESP_RETURN_ON_FALSE(s_requests != NULL, ESP_ERR_INVALID_STATE, TAG,
+                      "not started");
+  /* Queue first: a full queue must not leave rules saved for the next
+     boot that the app was told did not apply. */
+  request_t request = {.type = REQUEST_SET_RULES, .rules = *rules};
+  ESP_RETURN_ON_ERROR(send_request(&request), TAG, "queue rules");
+  return settings_store_save(RULES_SETTINGS_KEY, rules, sizeof(*rules));
 }

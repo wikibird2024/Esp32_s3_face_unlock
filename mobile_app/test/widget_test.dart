@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('four tabs; Live asks for an address; Settings has the field', (
+  testWidgets('five tabs; Live asks for an address; Settings has the field', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -24,7 +24,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final tabBar = find.byType(NavigationBar);
-    for (final label in ['Live', 'Approve', 'History', 'Settings']) {
+    for (final label in ['Live', 'Approve', 'Faces', 'History', 'Settings']) {
       expect(
         find.descendant(of: tabBar, matching: find.text(label)),
         findsOneWidget,
@@ -38,6 +38,6 @@ void main() {
 
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
-    expect(find.text('Coming soon'), findsOneWidget);
+    expect(find.text('Set the board address in Settings ⚙'), findsOneWidget);
   });
 }
