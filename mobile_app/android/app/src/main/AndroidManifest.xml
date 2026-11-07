@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 13+: "visitor at the door" notifications (MQTT approvals). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- usesCleartextTraffic: the board serves plain http:// on the local
          Wi-Fi (no TLS yet, see README "Hardening"). -->
     <application

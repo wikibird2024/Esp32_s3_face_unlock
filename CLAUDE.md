@@ -28,6 +28,7 @@ cd test/target && idf.py build flash monitor
 # Phone app (Flutter, SDK in /mnt/storage/HaoTran/sdk)
 cd mobile_app && flutter analyze && flutter test
 python3 mobile_app/tool/fake_board.py --port 8080   # board stand-in (API 8080, stream 8081)
+python3 mobile_app/tool/fake_mqtt_board.py --self-test  # MQTT board stand-in (needs paho-mqtt to run live)
 # App API check: read-only on the real board; --full (changes things) only on the fake
 python3 mobile_app/tool/api_check.py --host <board ip> --token <token>
 
@@ -79,7 +80,9 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
 - `keypad_input` is a stub with no pins chosen yet; pick them clear of the
   camera and lock pins (README "Next milestones").
 - `net_comm` has a Wi-Fi station (off when the SSID is empty) but no MQTT
-  yet; the planned contract is `docs/mqtt_contract.md`.
+  yet. The app side of `docs/mqtt_contract.md` is built (topics
+  `<prefix>approval-request` etc., Adafruit IO feeds); the firmware must
+  match it, including the HMAC test vector.
 - The app API (`board_api`, port 80) and the stream (`video_stream`, port 81)
   need the app token, but over plain HTTP: anyone sniffing the Wi-Fi can
   read it. Never show the token on the OLED (it faces the visitor).

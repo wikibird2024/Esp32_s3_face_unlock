@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/board/board_address.dart';
 import '../../core/board/mjpeg_reader.dart';
+import '../../core/retry_delay.dart';
 
 enum LiveStatus { stopped, noAddress, connecting, live, offline }
 
@@ -37,15 +38,6 @@ const connectTimeout = Duration(seconds: 5);
 
 /// Longer than this without a frame counts as offline.
 const frameTimeout = Duration(seconds: 5);
-
-const maxRetryDelay = Duration(seconds: 30);
-
-/// Wait before reconnect attempt [attempt] (0-based): 1, 2, 4, 8, 16, 30, 30… s.
-Duration retryDelay(int attempt) {
-  final seconds = 1 << attempt.clamp(0, 5);
-  final delay = Duration(seconds: seconds);
-  return delay > maxRetryDelay ? maxRetryDelay : delay;
-}
 
 /// Live view state. Disposed when the Live tab is left, which closes the
 /// stream: the board serves one viewer at a time.

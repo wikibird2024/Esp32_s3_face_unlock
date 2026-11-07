@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:face_unlock/core/board/board_address.dart';
+import 'package:face_unlock/core/retry_delay.dart';
 import 'package:face_unlock/features/live/live_notifier.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

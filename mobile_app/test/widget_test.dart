@@ -38,6 +38,9 @@ void main() {
 
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
-    expect(find.text('Set the board address in Settings ⚙'), findsOneWidget);
+    expect(
+      find.text('Set the board address or the broker in Settings ⚙'),
+      findsOneWidget,
+    );
   });
 }

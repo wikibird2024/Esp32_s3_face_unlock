@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/board/board_address.dart';
 import '../../../core/board/board_api.dart';
+import '../../../core/mqtt/broker_notifier.dart';
 import 'board_settings_form.dart';
+import 'broker_settings_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -131,6 +133,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.cloud_sync),
+            title: const Text('Broker (MQTT)'),
+            subtitle: Text(describeBrokerState(ref.watch(brokerProvider))),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _open(const BrokerSettingsScreen()),
+          ),
           ListTile(
             leading: const Icon(Icons.photo_camera),
             title: const Text('Camera picture'),

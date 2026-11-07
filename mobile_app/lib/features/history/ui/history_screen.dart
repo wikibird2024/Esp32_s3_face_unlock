@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/board/board_api.dart';
+import '../../../core/mqtt/broker_messages.dart';
+import '../../../core/mqtt/broker_notifier.dart';
 
-/// The board's last 50 events, newest first. The board keeps them in RAM,
-/// so the list starts empty after a board restart.
+/// The board's last 50 events, newest first, and above them the events the
+/// broker sent since the app started. The board keeps its list in RAM, so it
+/// starts empty after a board restart.
 class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
 
@@ -43,6 +46,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final hasAddress = ref.watch(boardApiProvider) != null;
+    final brokerEvents = ref.watch(brokerProvider.select((b) => b.events));
     return Scaffold(
       appBar: AppBar(
         title: const Text('History'),
@@ -54,42 +58,80 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           ),
         ],
       ),
-      body: hasAddress
-          ? RefreshIndicator(onRefresh: _refresh, child: _buildList())
+      body: hasAddress || brokerEvents.isNotEmpty
+          ? RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                children: [
+                  if (brokerEvents.isNotEmpty) ...[
+                    const _SectionHeader(
+                      'From the broker, since the app started',
+                    ),
+                    for (final event in brokerEvents) _brokerTile(event),
+                    if (hasAddress) const _SectionHeader('From the board'),
+                  ],
+                  if (hasAddress) ..._boardTiles(),
+                ],
+              ),
+            )
           : const Center(child: Text('Set the board address in Settings ⚙')),
     );
   }
 
-  Widget _buildList() {
+  Widget _brokerTile(BrokerEvent event) {
+    final asBoardEvent = BoardEvent(
+      seq: 0,
+      timeMs: 0,
+      type: event.type,
+      faceId: event.faceId,
+      name: event.name,
+      requestId: event.requestId,
+    );
+    return ListTile(
+      leading: Icon(iconForEvent(event.type)),
+      title: Text(describeEvent(asBoardEvent)),
+      subtitle: Text(timeAgo(DateTime.now(), event.time)),
+    );
+  }
+
+  List<Widget> _boardTiles() {
     final events = _events;
     if (events == null || events.events.isEmpty) {
       final message = events == null
           ? (_error == null ? null : '🔴 $_error')
           : 'Nothing yet since the board started.';
-      return ListView(
-        children: [
-          const SizedBox(height: 120),
-          Center(
-            child: message == null
-                ? const CircularProgressIndicator()
-                : Text(message),
-          ),
-        ],
-      );
+      return [
+        const SizedBox(height: 120),
+        Center(
+          child: message == null
+              ? const CircularProgressIndicator()
+              : Text(message),
+        ),
+      ];
     }
-    final newestFirst = events.events.reversed.toList();
-    return ListView.builder(
-      itemCount: newestFirst.length,
-      itemBuilder: (context, index) {
-        final event = newestFirst[index];
-        return ListTile(
+    return [
+      for (final event in events.events.reversed)
+        ListTile(
           leading: Icon(iconForEvent(event.type)),
           title: Text(describeEvent(event)),
-          subtitle: Text(timeAgo(_receivedAt, events.timeOf(event, _receivedAt))),
-        );
-      },
-    );
+          subtitle: Text(
+            timeAgo(_receivedAt, events.timeOf(event, _receivedAt)),
+          ),
+        ),
+    ];
   }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+  );
 }
 
 IconData iconForEvent(String type) {
