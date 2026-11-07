@@ -10,6 +10,7 @@
 #include "feedback.h"
 #include "net_comm.h"
 #include "nvs_flash.h"
+#include "oled_display.h"
 #include "system_logic.h"
 #include "video_stream.h"
 
@@ -51,6 +52,9 @@ void app_main(void) {
   ESP_ERROR_CHECK(net_comm_init());
   if (feedback_start() != ESP_OK) {
     ESP_LOGW(TAG, "No beep/LED feedback; everything else works");
+  }
+  if (oled_display_start() != ESP_OK) {
+    ESP_LOGW(TAG, "No OLED display; everything else works");
   }
 
   face_db_t *face_db = NULL;

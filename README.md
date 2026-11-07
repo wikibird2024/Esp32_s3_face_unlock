@@ -45,6 +45,7 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | `console_commands` | Serial commands for setup and debugging | manual |
 | `app_events` | Event ids and payloads shared by all components | — |
 | `feedback` | Beeps and an RGB LED (WS2812) from the events (listens only) | manual |
+| `oled_display` | 0.66" 64x48 SSD1306 OLED on I2C: lock status from the events (listens only) | host (text drawing) |
 | `net_comm` | Wi-Fi station (optional); listens to events, MQTT is the next milestone | — |
 | `video_stream` | Live camera view over HTTP (`/`, `/stream`, `/jpg`) | manual |
 | `keypad_input` | Stub, not started (next milestone) | — |
@@ -58,6 +59,7 @@ All numbers are in `idf.py menuconfig` → *System logic (unlock rules)*.
 | Lock output | GPIO 2, active high | menuconfig → *Door control* |
 | Enroll button | off (-1); GPIO 0 is BOOT, active low | menuconfig → *System logic* |
 | Buzzer, RGB LED | off (-1); free: 14 (buzzer, active high), 21 or the DevKitC LED on 48/38 (WS2812) | menuconfig → *Feedback* |
+| OLED 64x48 (SSD1306, I2C 0x3C) | off (-1); free: SDA 41, SCL 42, reset (RS) 40 or tie RS to 3V3 | menuconfig → *OLED display* |
 
 > Quad-PSRAM modules (N8R2, N4R2): set `CONFIG_SPIRAM_MODE_QUAD=y` in
 > `sdkconfig.defaults` and delete `sdkconfig`, or the board stops at boot

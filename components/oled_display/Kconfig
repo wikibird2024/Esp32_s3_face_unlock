@@ -1,0 +1,42 @@
+menu "OLED display (SSD1306 64x48, I2C)"
+
+    config OLED_DISPLAY_SDA_GPIO
+        int "SDA GPIO (-1 = no display)"
+        range -1 48
+        default -1
+        help
+            I2C data pin of the 0.66" 64x48 SSD1306 OLED. GPIO 41 is free
+            on the default pin map. Do not share the camera's SCCB pins.
+
+    config OLED_DISPLAY_SCL_GPIO
+        int "SCL GPIO (-1 = no display)"
+        range -1 48
+        default -1
+        help
+            I2C clock pin of the OLED. GPIO 42 is free on the default pin
+            map.
+
+    config OLED_DISPLAY_RESET_GPIO
+        int "Reset (RS/RST) GPIO (-1 = pin tied to 3V3)"
+        range -1 48
+        default -1
+        help
+            SSD1306 reset pin, active low. The firmware pulses it low at
+            start, then holds it high. GPIO 40 is free on the default pin
+            map. With -1, tie the pin to 3V3: left open, the screen stays
+            dark.
+
+    config OLED_DISPLAY_I2C_ADDRESS
+        hex "I2C address"
+        range 0x3C 0x3D
+        default 0x3C
+        help
+            0x3C on most modules; 0x3D when the address jumper is moved.
+
+    config OLED_DISPLAY_ROTATE_180
+        bool "Rotate 180 degrees"
+        default n
+        help
+            Turn on when the text shows upside down.
+
+endmenu

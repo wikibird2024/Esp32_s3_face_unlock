@@ -37,6 +37,10 @@ add_host_test(test_face_db
   SOURCES test_face_db.c ${REPO_ROOT}/components/face_db/face_db.c
   INCLUDES ${REPO_ROOT}/components/face_db)
 
+add_host_test(test_display_text
+  SOURCES test_display_text.c ${REPO_ROOT}/components/oled_display/display_text.c
+  INCLUDES ${REPO_ROOT}/components/oled_display)
+
 add_host_test(test_unlock_state_machine
   SOURCES test_unlock_state_machine.c
           ${REPO_ROOT}/components/system_logic/unlock_state_machine.c
