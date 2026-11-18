@@ -1,6 +1,6 @@
 [package]
 name = "pc_tool"
-version = "0.1.0"
+version = "0.2.0"
 description = "Bench tool for the ESP32-S3 face-unlock board: console, camera, flash, inspector"
 edition.workspace = true
 authors.workspace = true

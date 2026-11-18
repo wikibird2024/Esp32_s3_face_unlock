@@ -1,6 +1,6 @@
 # Console protocol: firmware ⇄ PC bench tool
 
-Author: Hao Tran. Protocol version: 1.
+Author: Hao Tran. Protocol version: 1.1 (1.1 adds the `door_fault` event line; older tools ignore it).
 
 This file is the contract between the firmware console (`console_commands`,
 `system_logic`) and `pc_tool/` (the desktop bench app) and the fake board
