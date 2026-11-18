@@ -63,7 +63,8 @@ export type BoardEventKind =
   | "enrollFailed"
   | "approvalRequested"
   | "approvalDenied"
-  | "approvalTimeout";
+  | "approvalTimeout"
+  | "doorFault";
 
 export interface BoardEventPayload {
   kind: BoardEventKind;
@@ -219,6 +220,8 @@ export interface FrameLocation {
 export interface DecodedBacktrace {
   frames: FrameLocation[];
   fallbackLines: string[];
+  elfSha256: string | null;
+  isElfMismatch: boolean;
 }
 
 export interface DefaultPaths {

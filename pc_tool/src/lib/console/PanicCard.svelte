@@ -28,13 +28,21 @@
     {formatClock(panic.tsMs)} · core {panic.core ?? "?"} · {panic.frames.length} frames{panic.isCorrupted ? " · corrupted" : ""}
     {#if panic.elfSha256}· ELF {panic.elfSha256.slice(0, 8)}{/if}
   </div>
+  {#if panic.decoded?.isElfMismatch}
+    <div class="error-text">
+      ELF mismatch: the board ran {panic.elfSha256}, the file is {panic.decoded.elfSha256?.slice(0, 16)}.
+      The locations below come from another build and can be wrong.
+    </div>
+  {/if}
   {#if panic.decoded}
     <ol class="frames mono">
       {#each panic.decoded.frames as frame, index (index)}
         <li class:inlined={frame.isInlined}>
           <span class="dim">{formatHex(frame.address)}</span>
           {frame.function ?? "?"}
-          {#if frame.file && frame.line}
+          {#if frame.file && frame.line && panic.decoded.isElfMismatch}
+            <span class="dim">{shortFile(frame.file)}:{frame.line}</span>
+          {:else if frame.file && frame.line}
             <button class="link" onclick={() => open(frame.file!, frame.line!)}>{shortFile(frame.file)}:{frame.line}</button>
           {/if}
         </li>

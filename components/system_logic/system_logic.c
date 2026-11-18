@@ -58,6 +58,9 @@ static char s_enroll_name[FACE_DB_NAME_MAX_LEN + 1];
 /* Name of the face waiting for approval (the frame is gone by the answer). */
 static char s_approval_name[FACE_DB_NAME_MAX_LEN + 1];
 
+/* For inputs that do not come from a camera frame. */
+static const frame_result_t s_no_frame = {0};
+
 static portMUX_TYPE s_status_lock = portMUX_INITIALIZER_UNLOCKED;
 static system_logic_status_t s_status;
 
@@ -162,7 +165,13 @@ static void carry_out(const unlock_action_t *action,
              action->face_id, action->similarity);
     esp_err_t err = door_control_open(CONFIG_SYSTEM_LOGIC_UNLOCK_HOLD_MS);
     if (err != ESP_OK) {
+      /* The lock stayed locked: leave UNLOCKED so status does not say open
+       * and no door_closed follows a door that never opened. */
       ESP_LOGE(TAG, "Door open failed: %s", esp_err_to_name(err));
+      const unlock_input_t fault = {.type = UNLOCK_INPUT_DOOR_FAULT};
+      unlock_sm_handle(&s_machine, &fault, now_ms());
+      post_event(APP_EVENT_DOOR_FAULT, action->face_id, action->similarity,
+                 name, 0);
       return;
     }
     post_event(APP_EVENT_DOOR_OPENED, action->face_id, action->similarity, name,
@@ -256,6 +265,9 @@ static void handle_input(unlock_input_type_t type, const frame_result_t *frame,
                                 .similarity = similarity,
                                 .request_id = request_id};
   const unlock_state_t state_before = unlock_sm_state(&s_machine);
+  const uint32_t waiting_request_id = unlock_sm_waiting_request_id(&s_machine);
+  const uint16_t waiting_face_id = s_machine.approval_face_id;
+  const float waiting_similarity = s_machine.approval_similarity;
   const unlock_action_t action = unlock_sm_handle(&s_machine, &input, now_ms());
   if (state_before == UNLOCK_STATE_ENROLLING &&
       action.type == UNLOCK_ACTION_OPEN_DOOR) {
@@ -263,35 +275,55 @@ static void handle_input(unlock_input_type_t type, const frame_result_t *frame,
     ESP_LOGW(TAG, "Enroll '%s' ended by manual unlock", s_enroll_name);
     post_event(APP_EVENT_ENROLL_FAILED, 0, 0.0f, s_enroll_name, 0);
   }
+  if (state_before == UNLOCK_STATE_WAITING_APPROVAL &&
+      type == UNLOCK_INPUT_MANUAL_UNLOCK) {
+    /* A manual unlock ends the wait; close the request for listeners. */
+    ESP_LOGW(TAG, "Approval #%lu for '%s' ended by manual unlock",
+             (unsigned long)waiting_request_id, s_approval_name);
+    post_event(APP_EVENT_APPROVAL_DENIED, waiting_face_id, waiting_similarity,
+               s_approval_name, waiting_request_id);
+  }
   carry_out(&action, frame);
   update_status();
 }
 
 static void handle_requests(void) {
-  static const frame_result_t no_frame = {0};
   request_t request;
   while (xQueueReceive(s_requests, &request, 0) == pdTRUE) {
     switch (request.type) {
     case REQUEST_ENROLL:
+      if (unlock_sm_state(&s_machine) == UNLOCK_STATE_ENROLLING) {
+        /* The new enroll replaces the running one; tell listeners. */
+        ESP_LOGW(TAG, "Enroll '%s' replaced by '%s'", s_enroll_name,
+                 request.name);
+        post_event(APP_EVENT_ENROLL_FAILED, 0, 0.0f, s_enroll_name, 0);
+      }
       memcpy(s_enroll_name, request.name, sizeof(s_enroll_name));
-      handle_input(UNLOCK_INPUT_START_ENROLL, &no_frame, 0, 0.0f, 0);
+      handle_input(UNLOCK_INPUT_START_ENROLL, &s_no_frame, 0, 0.0f, 0);
       break;
     case REQUEST_CANCEL_ENROLL:
-      handle_input(UNLOCK_INPUT_CANCEL_ENROLL, &no_frame, 0, 0.0f, 0);
+      handle_input(UNLOCK_INPUT_CANCEL_ENROLL, &s_no_frame, 0, 0.0f, 0);
       break;
     case REQUEST_UNLOCK:
-      handle_input(UNLOCK_INPUT_MANUAL_UNLOCK, &no_frame, 0, 0.0f, 0);
+      handle_input(UNLOCK_INPUT_MANUAL_UNLOCK, &s_no_frame, 0, 0.0f, 0);
       break;
     case REQUEST_APPROVE:
-    case REQUEST_DENY:
+    case REQUEST_DENY: {
+      bool is_approved = request.type == REQUEST_APPROVE;
       if (request.request_id != unlock_sm_waiting_request_id(&s_machine)) {
         ESP_LOGW(TAG, "Answer to approval #%lu ignored: not waiting for it",
                  (unsigned long)request.request_id);
+      } else if (is_approved &&
+                 !face_db_contains(s_face_db, s_machine.approval_face_id)) {
+        /* The face was deleted while it waited: it must not open the door. */
+        ESP_LOGW(TAG, "Approval #%lu refused: face %u is no longer enrolled",
+                 (unsigned long)request.request_id, s_machine.approval_face_id);
+        is_approved = false;
       }
-      handle_input(request.type == REQUEST_APPROVE ? UNLOCK_INPUT_APPROVE
-                                                   : UNLOCK_INPUT_DENY,
-                   &no_frame, 0, 0.0f, request.request_id);
+      handle_input(is_approved ? UNLOCK_INPUT_APPROVE : UNLOCK_INPUT_DENY,
+                   &s_no_frame, 0, 0.0f, request.request_id);
       break;
+    }
     }
   }
 }
@@ -320,6 +352,8 @@ static void poll_enroll_button(void) {
 static void process_frame(void) {
   camera_frame_t camera_frame;
   if (camera_driver_get_frame(&camera_frame) != ESP_OK) {
+    /* A missed frame breaks "N frames in a row", like a frame with no face. */
+    handle_input(UNLOCK_INPUT_NO_FACE, &s_no_frame, 0, 0.0f, 0);
     vTaskDelay(pdMS_TO_TICKS(CAMERA_RETRY_DELAY_MS));
     return;
   }
@@ -331,6 +365,7 @@ static void process_frame(void) {
   camera_driver_release_frame(&camera_frame);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "Inference failed: %s", esp_err_to_name(err));
+    handle_input(UNLOCK_INPUT_NO_FACE, &s_no_frame, 0, 0.0f, 0);
     return;
   }
 
@@ -374,14 +409,13 @@ static void process_frame(void) {
 
 static void recognition_task(void *argument) {
   (void)argument;
-  static const frame_result_t no_frame = {0};
   ESP_LOGI(TAG, "Recognition running (%u faces enrolled)",
            (unsigned)face_db_count(s_face_db));
   for (;;) {
     handle_requests();
     poll_enroll_button();
     process_frame();
-    handle_input(UNLOCK_INPUT_TICK, &no_frame, 0, 0.0f, 0);
+    handle_input(UNLOCK_INPUT_TICK, &s_no_frame, 0, 0.0f, 0);
     print_telemetry_line(now_ms());
     /* Let the idle task on this core run (task watchdog, heap cleanup)
      * even when a new frame is always ready. */

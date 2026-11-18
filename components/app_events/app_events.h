@@ -36,10 +36,14 @@ typedef enum {
   /** Payload app_event_face_t (face, name, request_id). A known face waits
    * for system_logic_request_approve(request_id) or _deny(request_id). */
   APP_EVENT_APPROVAL_REQUESTED,
-  /** Payload app_event_face_t (face, name, request_id). */
+  /** Payload app_event_face_t (face, name, request_id). Also posted when a
+   * manual unlock ends the wait, or the face was deleted before the answer. */
   APP_EVENT_APPROVAL_DENIED,
   /** Payload app_event_face_t (face, name, request_id). */
   APP_EVENT_APPROVAL_TIMEOUT,
+  /** Payload app_event_face_t (who the door was for). The lock could not be
+   * opened; it stays locked. */
+  APP_EVENT_DOOR_FAULT,
 } app_event_id_t;
 
 typedef struct {

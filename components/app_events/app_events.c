@@ -22,6 +22,8 @@ const char *app_event_name(int32_t event_id) {
     return "approval_denied";
   case APP_EVENT_APPROVAL_TIMEOUT:
     return "approval_timeout";
+  case APP_EVENT_DOOR_FAULT:
+    return "door_fault";
   }
   return "unknown";
 }

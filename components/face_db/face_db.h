@@ -99,13 +99,18 @@ void face_db_destroy(face_db_t *db);
 /**
  * Add a face. The same name may be enrolled several times (several photos of
  * one person improve matching). Names longer than FACE_DB_NAME_MAX_LEN are
- * cut.
+ * cut. The new id is one above the highest id ever used, so the id of a
+ * deleted face is not given to somebody else (only after id 65535 has been
+ * used does the store fall back to the lowest free id).
  */
 face_db_status_t face_db_enroll(face_db_t *db, const char *name,
                                 const float *embedding, size_t embedding_len,
                                 uint16_t *out_id);
 face_db_status_t face_db_delete(face_db_t *db, uint16_t id);
 face_db_status_t face_db_clear(face_db_t *db);
+
+/** True when a face with this id is enrolled now. */
+bool face_db_contains(face_db_t *db, uint16_t id);
 
 size_t face_db_count(face_db_t *db);
 size_t face_db_capacity(const face_db_t *db);
@@ -131,6 +136,13 @@ face_db_status_t face_db_find_best(face_db_t *db, const float *embedding,
  */
 face_db_status_t face_db_add_loaded_record(face_db_t *db,
                                            const face_db_record_t *record);
+
+/**
+ * Tell the store that `id` was given out before, so it is never given to
+ * another face (0 is ignored). Used by storage->load_all() for the highest
+ * id it has ever saved; not meant for application code.
+ */
+void face_db_mark_id_used(face_db_t *db, uint16_t id);
 
 const char *face_db_status_name(face_db_status_t status);
 

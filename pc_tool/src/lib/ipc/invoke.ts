@@ -51,8 +51,8 @@ export const build = {
   runIdfBuild: (repoPath: string, idfPath: string, extraArgs: string[] = []) =>
     invoke<void>("run_idf_build", { repoPath, idfPath, extraArgs }),
   stopIdfBuild: () => invoke<void>("stop_idf_build"),
-  decodeBacktrace: (elfPath: string, addresses: number[]) =>
-    invoke<DecodedBacktrace>("decode_backtrace", { elfPath, addresses }),
+  decodeBacktrace: (elfPath: string, addresses: number[], boardElfSha256: string | null) =>
+    invoke<DecodedBacktrace>("decode_backtrace", { elfPath, addresses, boardElfSha256 }),
 };
 
 export const flash = {

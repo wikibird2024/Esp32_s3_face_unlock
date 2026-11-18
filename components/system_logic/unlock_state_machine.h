@@ -62,6 +62,9 @@ typedef enum {
   /** Answer to an approval request; see request_id. */
   UNLOCK_INPUT_APPROVE,
   UNLOCK_INPUT_DENY,
+  /** The lock did not open after OPEN_DOOR: UNLOCKED ends at once (cooldown,
+   * no CLOSE_DOOR). Ignored in every other state. */
+  UNLOCK_INPUT_DOOR_FAULT,
 } unlock_input_type_t;
 
 typedef struct {

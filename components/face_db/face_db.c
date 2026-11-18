@@ -14,6 +14,8 @@ struct face_db {
   size_t embedding_len;
   size_t count;
   size_t skipped_count;
+  /* Highest id ever given out, also to faces deleted since. */
+  uint16_t highest_used_id;
   bool has_storage;
   bool has_lock;
   face_db_storage_t storage;
@@ -80,17 +82,12 @@ static long find_index(const face_db_t *db, uint16_t id) {
   return -1;
 }
 
-/* Next id: one above the highest in use, or the lowest free one after the
- * highest possible id has been used. */
+/* Next id: one above the highest ever used, so the id of a deleted face is
+ * not given to somebody else. Only after the highest possible id has been
+ * used: the lowest free one. */
 static uint16_t next_free_id(const face_db_t *db) {
-  uint16_t highest = FACE_DB_NO_ID;
-  for (size_t i = 0; i < db->count; i++) {
-    if (db->slots[i].id > highest) {
-      highest = db->slots[i].id;
-    }
-  }
-  if (highest < UINT16_MAX) {
-    return (uint16_t)(highest + 1u);
+  if (db->highest_used_id < UINT16_MAX) {
+    return (uint16_t)(db->highest_used_id + 1u);
   }
   for (uint32_t id = 1; id <= UINT16_MAX; id++) {
     if (find_index(db, (uint16_t)id) < 0) {
@@ -194,6 +191,8 @@ face_db_status_t face_db_add_loaded_record(face_db_t *db,
       record->name == NULL || record->id == FACE_DB_NO_ID) {
     return FACE_DB_ERR_INVALID_ARG;
   }
+  /* Also for a skipped record: it still sits in storage under this id. */
+  face_db_mark_id_used(db, record->id);
   /* A record from another model, a duplicate id or one past a lowered
    * capacity is skipped, not fatal: it must not lock everybody out. */
   if (record->embedding_len != db->embedding_len ||
@@ -238,6 +237,9 @@ face_db_status_t face_db_enroll(face_db_t *db, const char *name,
       status = FACE_DB_ERR_STORAGE;
     }
   }
+  if (status == FACE_DB_OK) {
+    face_db_mark_id_used(db, id);
+  }
   db_unlock(db);
   if (status == FACE_DB_OK && out_id != NULL) {
     *out_id = id;
@@ -278,6 +280,22 @@ face_db_status_t face_db_clear(face_db_t *db) {
   }
   db_unlock(db);
   return status;
+}
+
+bool face_db_contains(face_db_t *db, uint16_t id) {
+  if (db == NULL || id == FACE_DB_NO_ID) {
+    return false;
+  }
+  db_lock(db);
+  const bool is_enrolled = find_index(db, id) >= 0;
+  db_unlock(db);
+  return is_enrolled;
+}
+
+void face_db_mark_id_used(face_db_t *db, uint16_t id) {
+  if (db != NULL && id > db->highest_used_id) {
+    db->highest_used_id = id;
+  }
 }
 
 size_t face_db_count(face_db_t *db) {

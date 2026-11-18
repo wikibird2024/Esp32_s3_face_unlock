@@ -19,6 +19,7 @@ pub enum BoardEventKind {
     ApprovalRequested,
     ApprovalDenied,
     ApprovalTimeout,
+    DoorFault,
 }
 
 impl BoardEventKind {
@@ -33,6 +34,7 @@ impl BoardEventKind {
             "approval_requested" => Self::ApprovalRequested,
             "approval_denied" => Self::ApprovalDenied,
             "approval_timeout" => Self::ApprovalTimeout,
+            "door_fault" => Self::DoorFault,
             _ => return None,
         })
     }

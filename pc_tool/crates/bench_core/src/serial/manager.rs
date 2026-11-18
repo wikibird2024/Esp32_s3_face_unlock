@@ -126,6 +126,13 @@ impl SerialManager {
         Ok(())
     }
 
+    /// `send_text` for a command the user typed: waits for a running
+    /// `run_command`, so the two outputs do not mix into one reply.
+    pub async fn send_text_in_turn(&self, text: &str) -> Result<(), SerialError> {
+        let _guard = self.command_lock.lock().await;
+        self.send_text(text)
+    }
+
     /// Send a command and collect its reply until the next prompt.
     pub async fn run_command(
         &self,
@@ -335,9 +342,11 @@ impl LineProcessor {
         for item in self.splitter.push(bytes) {
             match item {
                 SplitItem::Prompt => {
-                    if let Some(collector) = shared.collector.lock().expect("collector lock").take()
-                    {
-                        collector.finish();
+                    let mut waiting = shared.collector.lock().expect("collector lock");
+                    if waiting.as_ref().is_some_and(ReplyCollector::is_echo_seen) {
+                        if let Some(collector) = waiting.take() {
+                            collector.finish();
+                        }
                     }
                 }
                 SplitItem::Line(text) => self.handle_line(text, shared),
@@ -564,6 +573,24 @@ mod tests {
         assert_eq!(batch["lines"].as_array().unwrap().len(), 6);
         assert_eq!(batch["lines"][0]["tag"], "app_main");
         assert_eq!(batch["lines"][0]["boardMs"], 300);
+    }
+
+    #[test]
+    fn late_reply_of_an_earlier_command_is_not_taken_as_this_reply() {
+        let sink = Arc::new(RecordingSink::default());
+        let shared = shared_for_test();
+        let mut processor = LineProcessor::new(sink.clone());
+        let (sender, mut receiver) = oneshot::channel();
+        *shared.collector.lock().unwrap() = Some(ReplyCollector::new("tasks".into(), sender));
+        // Output and prompt of a command that timed out earlier, then the
+        // echo of this command in the same line as that prompt.
+        processor.push_bytes(b"@list []\r\nface> ", &shared);
+        assert!(receiver.try_recv().is_err(), "stale prompt ended the reply");
+        processor.push_bytes(b"face> tasks\r\nface_logic\tR\t5\r\nface> ", &shared);
+        let lines = receiver
+            .try_recv()
+            .expect("reply finished at its own prompt");
+        assert_eq!(lines, vec!["face_logic\tR\t5".to_string()]);
     }
 
     #[test]

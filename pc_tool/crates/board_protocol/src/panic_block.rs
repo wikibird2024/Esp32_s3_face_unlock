@@ -32,6 +32,17 @@ pub struct PanicBlock {
     pub raw_lines: Vec<String>,
 }
 
+/// True when the hash a panic printed (often only the first characters)
+/// belongs to the ELF file with this full SHA-256. An empty printed hash
+/// never matches.
+pub fn elf_sha256_matches(printed_sha256: &str, file_sha256: &str) -> bool {
+    let printed = printed_sha256
+        .trim()
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    !printed.is_empty() && file_sha256.to_ascii_lowercase().starts_with(&printed)
+}
+
 /// Maximum lines kept per block before it is force-closed.
 const MAX_BLOCK_LINES: usize = 400;
 
@@ -159,6 +170,17 @@ mod tests {
         "ELF file SHA256: 1a2b3c4d5e6f7788",
         "Rebooting...",
     ];
+
+    #[test]
+    fn elf_hash_prefix_is_compared_without_case() {
+        let file = "1a2b3c4d5e6f7788aabbccddeeff00112233445566778899aabbccddeeff0011";
+        assert!(elf_sha256_matches("1a2b3c4d5", file));
+        assert!(elf_sha256_matches(" 1A2B3C4D5E6F... ", file));
+        assert!(elf_sha256_matches(file, file));
+        assert!(!elf_sha256_matches("1a2b3c4d6", file));
+        assert!(!elf_sha256_matches("", file));
+        assert!(!elf_sha256_matches("...", file));
+    }
 
     #[test]
     fn collects_block_and_backtrace() {

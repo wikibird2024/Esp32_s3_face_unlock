@@ -32,8 +32,12 @@ pub fn serial_state(state: State<'_, AppState>) -> SerialStatePayload {
 }
 
 #[tauri::command]
-pub fn send_console_text(state: State<'_, AppState>, text: String) -> Result<(), String> {
-    state.serial.send_text(&text).map_err(text_error)
+pub async fn send_console_text(state: State<'_, AppState>, text: String) -> Result<(), String> {
+    state
+        .serial
+        .send_text_in_turn(&text)
+        .await
+        .map_err(text_error)
 }
 
 #[tauri::command]

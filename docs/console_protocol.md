@@ -126,7 +126,15 @@ I (12345) net_comm: publish face_unlock/<event> {"id":4,"name":"alice","similari
 
 `<event>` ∈ `door_opened`, `door_closed`, `face_rejected`, `enroll_started`,
 `face_enrolled`, `enroll_failed`, `approval_requested`, `approval_denied`,
-`approval_timeout`. `request` is non-zero only for approval events.
+`approval_timeout`, `door_fault`. `request` is non-zero only for approval
+events.
+
+- `approval_denied` also closes a request that ended another way: a manual
+  `unlock` while waiting, or an `approve` for a face deleted in the meantime.
+- `enroll_failed` is also posted for a running enroll that a new `enroll`
+  replaces.
+- `door_fault`: the lock could not be opened (it stays locked). No
+  `door_opened` or `door_closed` follows.
 
 Human result lines from `system_logic` that the tool also understands:
 

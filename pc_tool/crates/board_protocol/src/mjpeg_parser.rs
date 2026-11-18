@@ -10,6 +10,12 @@ pub const DEFAULT_BOUNDARY: &str = "frameboundary";
 
 const HEADER_END: &[u8] = b"\r\n\r\n";
 
+/// Largest JPEG taken from the stream. The board's frames are tens of kB; a
+/// bigger part means a wrong server or a broken header, and is skipped.
+pub const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
+/// Largest part header block (the board sends about 60 bytes).
+const MAX_HEADER_BYTES: usize = 4096;
+
 /// Reads `boundary=...` from a multipart Content-Type header.
 pub fn boundary_from_content_type(content_type: &str) -> Option<String> {
     let lower = content_type.to_ascii_lowercase();
@@ -52,6 +58,12 @@ impl MjpegParser {
             };
             let Some(header_end) = find(&self.pending, HEADER_END, part_start + self.marker.len())
             else {
+                let header_start = part_start + self.marker.len();
+                if self.pending.len() - header_start > MAX_HEADER_BYTES {
+                    // Not a part header: drop this marker, look for the next.
+                    self.pending.drain(..header_start);
+                    continue;
+                }
                 self.pending.drain(..part_start);
                 break;
             };
@@ -61,6 +73,11 @@ impl MjpegParser {
             let frame_start = header_end + HEADER_END.len();
             let frame_end = match content_length(&headers) {
                 Some(length) => {
+                    if length > MAX_FRAME_BYTES {
+                        // Skip the part; the next boundary starts a new one.
+                        self.pending.drain(..frame_start);
+                        continue;
+                    }
                     let end = frame_start + length;
                     if self.pending.len() < end {
                         self.pending.drain(..part_start);
@@ -70,6 +87,10 @@ impl MjpegParser {
                 }
                 None => {
                     let Some(next_part) = find(&self.pending, &self.marker, frame_start) else {
+                        if self.pending.len() - frame_start > MAX_FRAME_BYTES {
+                            self.pending.drain(..frame_start);
+                            continue;
+                        }
                         self.pending.drain(..part_start);
                         break;
                     };
@@ -122,6 +143,38 @@ mod tests {
         bytes.extend((0..length).map(|index| (index as u8).wrapping_mul(seed)));
         bytes.extend([0xff, 0xd9]);
         bytes
+    }
+
+    #[test]
+    fn huge_content_length_is_skipped_and_the_next_frame_still_arrives() {
+        let good = fake_jpeg(3, 100);
+        for length in ["18446744073709551615", "4000000000"] {
+            let mut body = format!(
+                "\r\n--frameboundary\r\nContent-Type: image/jpeg\r\nContent-Length: {length}\r\n\r\njunk"
+            )
+            .into_bytes();
+            body.extend(part(&good, true));
+            let mut parser = MjpegParser::new(DEFAULT_BOUNDARY);
+            assert_eq!(parser.push(&body), vec![good.clone()], "length {length}");
+        }
+    }
+
+    #[test]
+    fn buffer_stays_bounded_on_endless_header_or_frame() {
+        let chunk = vec![b'x'; 64 * 1024];
+        for start in [
+            "\r\n--frameboundary\r\nX-Junk: ",
+            "\r\n--frameboundary\r\nContent-Type: image/jpeg\r\n\r\n",
+        ] {
+            let mut parser = MjpegParser::new(DEFAULT_BOUNDARY);
+            assert!(parser.push(start.as_bytes()).is_empty());
+            for _ in 0..64 {
+                assert!(parser.push(&chunk).is_empty());
+            }
+            assert!(parser.pending.len() <= MAX_FRAME_BYTES + 2 * chunk.len());
+            let good = fake_jpeg(5, 40);
+            assert_eq!(parser.push(&part(&good, true)), vec![good]);
+        }
     }
 
     #[test]

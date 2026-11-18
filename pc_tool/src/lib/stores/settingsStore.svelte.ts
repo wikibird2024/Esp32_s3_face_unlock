@@ -47,7 +47,8 @@ class SettingsStore {
         const { load } = await import("@tauri-apps/plugin-store");
         this.store = (await load("settings.json")) as unknown as StoreHandle;
         const saved = await this.store.get<Partial<Settings>>("settings");
-        if (saved) this.values = { ...defaults, ...saved };
+        // Fill the same object: components keep a reference to `values`.
+        if (saved) Object.assign(this.values, defaults, saved);
       } catch (error) {
         console.warn("settings store unavailable", error);
       }

@@ -45,12 +45,14 @@
     approvalRequested: "WAIT approval",
     approvalDenied: "denied",
     approvalTimeout: "approval timeout",
+    doorFault: "DOOR FAULT",
   };
   const eventColour: Record<string, string> = {
     doorOpened: "green",
     faceRejected: "red",
     approvalRequested: "yellow",
     enrollFailed: "red",
+    doorFault: "red",
     faceEnrolled: "green",
   };
 </script>

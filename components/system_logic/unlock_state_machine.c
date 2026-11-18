@@ -209,6 +209,13 @@ unlock_action_t unlock_sm_handle(unlock_state_machine_t *machine,
   case UNLOCK_INPUT_APPROVE:
   case UNLOCK_INPUT_DENY:
     return handle_answer(machine, input, now_ms);
+
+  case UNLOCK_INPUT_DOOR_FAULT:
+    if (machine->state == UNLOCK_STATE_UNLOCKED) {
+      enter_state(machine, UNLOCK_STATE_COOLDOWN,
+                  now_ms + machine->config.cooldown_ms);
+    }
+    return make_action(UNLOCK_ACTION_NONE);
   }
   return make_action(UNLOCK_ACTION_NONE);
 }

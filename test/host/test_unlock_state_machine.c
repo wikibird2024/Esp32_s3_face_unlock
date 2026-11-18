@@ -381,6 +381,27 @@ static void test_manual_unlock_ends_waiting(void) {
   TEST_ASSERT_EQUAL_UINT32(0, unlock_sm_waiting_request_id(&machine));
 }
 
+static void test_door_fault_ends_unlocked_without_close(void) {
+  face(4, 0.9f);
+  face(4, 0.9f);
+  TEST_ASSERT_EQUAL(UNLOCK_ACTION_OPEN_DOOR, face(4, 0.9f).type);
+  TEST_ASSERT_EQUAL(UNLOCK_ACTION_NONE,
+                    send(UNLOCK_INPUT_DOOR_FAULT, 0, 0.0f).type);
+  TEST_ASSERT_EQUAL(UNLOCK_STATE_COOLDOWN, unlock_sm_state(&machine));
+  /* The door never opened, so no CLOSE_DOOR follows. */
+  TEST_ASSERT_EQUAL(UNLOCK_ACTION_NONE, tick_after(COOLDOWN_MS).type);
+  TEST_ASSERT_EQUAL(UNLOCK_STATE_IDLE, unlock_sm_state(&machine));
+}
+
+static void test_door_fault_ignored_when_not_unlocked(void) {
+  TEST_ASSERT_EQUAL(UNLOCK_ACTION_NONE,
+                    send(UNLOCK_INPUT_DOOR_FAULT, 0, 0.0f).type);
+  TEST_ASSERT_EQUAL(UNLOCK_STATE_IDLE, unlock_sm_state(&machine));
+  send(UNLOCK_INPUT_START_ENROLL, 0, 0.0f);
+  send(UNLOCK_INPUT_DOOR_FAULT, 0, 0.0f);
+  TEST_ASSERT_EQUAL(UNLOCK_STATE_ENROLLING, unlock_sm_state(&machine));
+}
+
 static void test_names_exist_for_all_values(void) {
   TEST_ASSERT_EQUAL_STRING("idle", unlock_state_name(UNLOCK_STATE_IDLE));
   TEST_ASSERT_EQUAL_STRING("enrolling",
@@ -429,6 +450,8 @@ int main(void) {
   RUN_TEST(test_unknown_face_rejected_without_asking);
   RUN_TEST(test_enroll_refused_while_waiting_approval);
   RUN_TEST(test_manual_unlock_ends_waiting);
+  RUN_TEST(test_door_fault_ends_unlocked_without_close);
+  RUN_TEST(test_door_fault_ignored_when_not_unlocked);
   RUN_TEST(test_names_exist_for_all_values);
   return UNITY_END();
 }

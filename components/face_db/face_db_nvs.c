@@ -14,6 +14,9 @@
 static const char *TAG = "face_db_nvs";
 
 #define FACE_NAMESPACE "faces"
+/* Highest face id ever saved (u16, not a blob, so load skips it). Kept when
+ * faces are erased, so the id of a deleted face is not given out again. */
+#define LAST_ID_KEY "last_id"
 /* Bump when the record layout changes; older records are then skipped. */
 #define RECORD_FORMAT_VERSION 1u
 
@@ -27,6 +30,8 @@ typedef struct __attribute__((packed)) {
 typedef struct {
   nvs_handle_t handle;
   SemaphoreHandle_t mutex;
+  /* Copy of LAST_ID_KEY; only used with the face_db lock held. */
+  uint16_t last_id;
 } nvs_backend_t;
 
 static nvs_backend_t s_backend;
@@ -43,6 +48,8 @@ static face_db_status_t load_one(nvs_backend_t *backend, face_db_t *db,
     ESP_LOGW(TAG, "Skipping unexpected key '%s'", key);
     return FACE_DB_OK;
   }
+  /* A record skipped below stays in flash: its id must not be given out. */
+  face_db_mark_id_used(db, (uint16_t)id);
   size_t blob_size = 0;
   if (nvs_get_blob(backend->handle, key, NULL, &blob_size) != ESP_OK ||
       blob_size < sizeof(record_header_t)) {
@@ -88,6 +95,11 @@ static face_db_status_t load_one(nvs_backend_t *backend, face_db_t *db,
 static face_db_status_t nvs_load_all(void *context, face_db_t *db,
                                      face_db_add_record_fn add_record) {
   nvs_backend_t *backend = context;
+  uint16_t last_id = 0;
+  if (nvs_get_u16(backend->handle, LAST_ID_KEY, &last_id) == ESP_OK) {
+    backend->last_id = last_id;
+    face_db_mark_id_used(db, last_id);
+  }
   nvs_iterator_t iterator = NULL;
   esp_err_t err = nvs_entry_find(CONFIG_FACE_DB_NVS_PARTITION, FACE_NAMESPACE,
                                  NVS_TYPE_BLOB, &iterator);
@@ -123,9 +135,18 @@ static face_db_status_t nvs_save(void *context,
 
   char key[NVS_KEY_NAME_MAX_SIZE];
   record_key(record->id, key);
-  esp_err_t err = nvs_set_blob(backend->handle, key, blob, blob_size);
+  esp_err_t err = ESP_OK;
+  if (record->id > backend->last_id) {
+    err = nvs_set_u16(backend->handle, LAST_ID_KEY, record->id);
+  }
+  if (err == ESP_OK) {
+    err = nvs_set_blob(backend->handle, key, blob, blob_size);
+  }
   if (err == ESP_OK) {
     err = nvs_commit(backend->handle);
+  }
+  if (err == ESP_OK && record->id > backend->last_id) {
+    backend->last_id = record->id;
   }
   free(blob);
   if (err != ESP_OK) {
@@ -157,6 +178,9 @@ static face_db_status_t nvs_erase(void *context, uint16_t id) {
 static face_db_status_t nvs_erase_everything(void *context) {
   nvs_backend_t *backend = context;
   esp_err_t err = nvs_erase_all(backend->handle);
+  if (err == ESP_OK && backend->last_id != 0) {
+    err = nvs_set_u16(backend->handle, LAST_ID_KEY, backend->last_id);
+  }
   if (err == ESP_OK) {
     err = nvs_commit(backend->handle);
   }

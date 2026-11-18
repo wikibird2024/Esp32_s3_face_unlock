@@ -129,6 +129,7 @@ async function decodePanic(record: import("$lib/stores/boardStore.svelte").Panic
     const decoded = await build.decodeBacktrace(
       elfPath,
       record.frames.map((frame) => frame.pc),
+      record.elfSha256,
     );
     boardStore.panics = boardStore.panics.map((item) => (item === record ? { ...item, decoded } : item));
   } catch (error) {

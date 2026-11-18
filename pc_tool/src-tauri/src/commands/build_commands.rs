@@ -49,21 +49,48 @@ pub struct DecodedBacktrace {
     pub frames: Vec<FrameLocation>,
     /// Text from the toolchain addr2line when the DWARF path failed.
     pub fallback_lines: Vec<String>,
+    /// SHA-256 of the ELF file used (None when it could not be read).
+    pub elf_sha256: Option<String>,
+    /// The panic printed the hash of another ELF: the locations below come
+    /// from a different build and can be wrong.
+    pub is_elf_mismatch: bool,
 }
 
 /// Decode on a blocking thread: loading a 30 MB ELF takes a moment.
+/// `board_elf_sha256` is the hash the panic printed, when it printed one.
 #[tauri::command]
 pub async fn decode_backtrace(
     elf_path: String,
     addresses: Vec<u32>,
+    board_elf_sha256: Option<String>,
 ) -> Result<DecodedBacktrace, String> {
-    tokio::task::spawn_blocking(move || match decode_addresses(&elf_path, &addresses) {
+    tokio::task::spawn_blocking(move || {
+        let elf_sha256 = build_info::sha256_of_file(std::path::Path::new(&elf_path)).ok();
+        let is_elf_mismatch = match (&board_elf_sha256, &elf_sha256) {
+            (Some(printed), Some(file)) => {
+                !board_protocol::panic_block::elf_sha256_matches(printed, file)
+            }
+            _ => false,
+        };
+        let mut decoded = decode_frames(&elf_path, &addresses)?;
+        decoded.elf_sha256 = elf_sha256;
+        decoded.is_elf_mismatch = is_elf_mismatch;
+        Ok(decoded)
+    })
+    .await
+    .map_err(text_error)?
+}
+
+fn decode_frames(elf_path: &str, addresses: &[u32]) -> Result<DecodedBacktrace, String> {
+    match decode_addresses(elf_path, addresses) {
         Ok(frames) => Ok(DecodedBacktrace {
             frames,
             fallback_lines: Vec::new(),
+            elf_sha256: None,
+            is_elf_mismatch: false,
         }),
         Err(error) => {
-            let build_dir = std::path::Path::new(&elf_path)
+            let build_dir = std::path::Path::new(elf_path)
                 .parent()
                 .unwrap_or(std::path::Path::new("."));
             let description = std::fs::read_to_string(build_dir.join("project_description.json"))
@@ -74,16 +101,16 @@ pub async fn decode_backtrace(
             let binary =
                 description.and_then(|project| build_info::toolchain_binary(&project, "addr2line"));
             match binary {
-                Some(binary) => decode_with_binary(&binary, &elf_path, &addresses)
+                Some(binary) => decode_with_binary(&binary, elf_path, addresses)
                     .map(|fallback_lines| DecodedBacktrace {
                         frames: Vec::new(),
                         fallback_lines,
+                        elf_sha256: None,
+                        is_elf_mismatch: false,
                     })
                     .map_err(|io| format!("{error}; addr2line fallback failed: {io}")),
                 None => Err(error.to_string()),
             }
         }
-    })
-    .await
-    .map_err(text_error)?
+    }
 }

@@ -32,17 +32,24 @@ impl ReplyCollector {
     }
 
     /// Offer a line; log and telemetry lines belong to other tasks and are
-    /// skipped. The first line equal to the command is the dumb-mode echo.
+    /// skipped. The first line equal to the command is the dumb-mode echo;
+    /// lines before it are the late output of an earlier command.
     pub fn push(&mut self, line: &str, class: LineClass) {
         match class {
             LineClass::Log | LineClass::Telemetry | LineClass::Panic => return,
             LineClass::JsonReply | LineClass::Console => {}
         }
-        if !self.echo_seen && line.trim() == self.command.trim() {
-            self.echo_seen = true;
+        if !self.echo_seen {
+            self.echo_seen = line.trim() == self.command.trim();
             return;
         }
         self.lines.push(line.to_string());
+    }
+
+    /// False until the board has echoed this command. A prompt before the
+    /// echo belongs to an earlier command and must not end this reply.
+    pub fn is_echo_seen(&self) -> bool {
+        self.echo_seen
     }
 
     /// The prompt arrived: hand the lines back.

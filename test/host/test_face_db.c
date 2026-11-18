@@ -23,11 +23,14 @@ typedef struct {
   bool should_fail_save;
   bool should_fail_erase;
   int save_count;
+  /* Highest id ever saved; kept by erase and erase_all like the device. */
+  uint16_t last_id;
 } fake_storage_t;
 
 static face_db_status_t fake_load_all(void *context, face_db_t *db,
                                       face_db_add_record_fn add_record) {
   fake_storage_t *storage = context;
+  face_db_mark_id_used(db, storage->last_id);
   for (size_t i = 0; i < FAKE_STORAGE_SLOTS; i++) {
     const fake_record_t *saved = &storage->records[i];
     if (!saved->is_used) {
@@ -61,6 +64,9 @@ static face_db_status_t fake_save(void *context,
       memcpy(slot->embedding, record->embedding,
              record->embedding_len * sizeof(float));
       storage->save_count++;
+      if (record->id > storage->last_id) {
+        storage->last_id = record->id;
+      }
       return FACE_DB_OK;
     }
   }
@@ -297,6 +303,92 @@ static void test_ids_are_not_reused_after_delete(void) {
   TEST_ASSERT_TRUE(third > second);
 }
 
+static void test_highest_id_is_not_reused_after_delete(void) {
+  float face[TEST_EMBEDDING_LEN];
+  make_embedding(face, 0, 1.0f);
+  uint16_t first = 0;
+  uint16_t second = 0;
+  uint16_t third = 0;
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "a", face, TEST_EMBEDDING_LEN, &first));
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "b", face, TEST_EMBEDDING_LEN, &second));
+  TEST_ASSERT_EQUAL(FACE_DB_OK, face_db_delete(db, second));
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "c", face, TEST_EMBEDDING_LEN, &third));
+  TEST_ASSERT_TRUE(third > second);
+}
+
+static void test_highest_id_is_not_reused_after_restart_or_clear(void) {
+  float face[TEST_EMBEDDING_LEN];
+  make_embedding(face, 0, 1.0f);
+  uint16_t first = 0;
+  uint16_t second = 0;
+  uint16_t third = 0;
+  uint16_t fourth = 0;
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "a", face, TEST_EMBEDDING_LEN, &first));
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "b", face, TEST_EMBEDDING_LEN, &second));
+  TEST_ASSERT_EQUAL(FACE_DB_OK, face_db_delete(db, second));
+
+  face_db_destroy(db);
+  db = create_db();
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "c", face, TEST_EMBEDDING_LEN, &third));
+  TEST_ASSERT_TRUE(third > second);
+
+  TEST_ASSERT_EQUAL(FACE_DB_OK, face_db_clear(db));
+  face_db_destroy(db);
+  db = create_db();
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "d", face, TEST_EMBEDDING_LEN, &fourth));
+  TEST_ASSERT_TRUE(fourth > third);
+}
+
+static void test_failed_save_does_not_use_up_an_id(void) {
+  float face[TEST_EMBEDDING_LEN];
+  make_embedding(face, 0, 1.0f);
+  uint16_t first = 0;
+  uint16_t second = 0;
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "a", face, TEST_EMBEDDING_LEN, &first));
+  storage_state.should_fail_save = true;
+  TEST_ASSERT_EQUAL(FACE_DB_ERR_STORAGE,
+                    face_db_enroll(db, "b", face, TEST_EMBEDDING_LEN, NULL));
+  storage_state.should_fail_save = false;
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "b", face, TEST_EMBEDDING_LEN, &second));
+  TEST_ASSERT_EQUAL_UINT16(first + 1, second);
+}
+
+static void test_lowest_free_id_after_the_last_id_was_used(void) {
+  float face[TEST_EMBEDDING_LEN];
+  make_embedding(face, 0, 1.0f);
+  uint16_t first = 0;
+  uint16_t second = 0;
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "a", face, TEST_EMBEDDING_LEN, &first));
+  face_db_mark_id_used(db, UINT16_MAX);
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "b", face, TEST_EMBEDDING_LEN, &second));
+  TEST_ASSERT_EQUAL_UINT16(first + 1, second);
+}
+
+static void test_contains_follows_enroll_and_delete(void) {
+  float face[TEST_EMBEDDING_LEN];
+  make_embedding(face, 0, 1.0f);
+  uint16_t id = 0;
+  TEST_ASSERT_FALSE(face_db_contains(db, 1));
+  TEST_ASSERT_EQUAL(FACE_DB_OK,
+                    face_db_enroll(db, "a", face, TEST_EMBEDDING_LEN, &id));
+  TEST_ASSERT_TRUE(face_db_contains(db, id));
+  TEST_ASSERT_FALSE(face_db_contains(db, FACE_DB_NO_ID));
+  TEST_ASSERT_FALSE(face_db_contains(NULL, id));
+  TEST_ASSERT_EQUAL(FACE_DB_OK, face_db_delete(db, id));
+  TEST_ASSERT_FALSE(face_db_contains(db, id));
+}
+
 static void test_faces_survive_restart(void) {
   float alice[TEST_EMBEDDING_LEN];
   make_embedding(alice, 3, 2.0f);
@@ -424,6 +516,11 @@ int main(void) {
   RUN_TEST(test_long_name_is_cut);
   RUN_TEST(test_delete_keeps_other_faces);
   RUN_TEST(test_ids_are_not_reused_after_delete);
+  RUN_TEST(test_highest_id_is_not_reused_after_delete);
+  RUN_TEST(test_highest_id_is_not_reused_after_restart_or_clear);
+  RUN_TEST(test_failed_save_does_not_use_up_an_id);
+  RUN_TEST(test_lowest_free_id_after_the_last_id_was_used);
+  RUN_TEST(test_contains_follows_enroll_and_delete);
   RUN_TEST(test_faces_survive_restart);
   RUN_TEST(test_records_from_other_model_are_skipped);
   RUN_TEST(test_more_saved_faces_than_capacity_are_skipped);
