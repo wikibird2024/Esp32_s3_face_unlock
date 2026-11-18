@@ -10,12 +10,14 @@
 #include "door_control.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "net_comm.h"
 
 static const char *TAG = "system_logic";
 
@@ -59,7 +61,68 @@ static char s_approval_name[FACE_DB_NAME_MAX_LEN + 1];
 static portMUX_TYPE s_status_lock = portMUX_INITIALIZER_UNLOCKED;
 static system_logic_status_t s_status;
 
+/* Telemetry period; written by the console task only, read by the
+   recognition task. 0 = off. A 32-bit store is atomic, so no lock. */
+static volatile uint32_t s_stats_period_ms;
+/* Counters for one telemetry period; recognition task only. */
+static struct {
+  uint32_t last_line_ms;
+  uint32_t last_box_ms;
+  uint32_t frames;
+  uint32_t inference_sum_ms;
+} s_stats;
+
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+
+/* One printf per line so a log line from another task cannot split it. */
+static void print_face_box(const ai_face_result_t *result,
+                           const face_db_match_t *match, uint32_t now) {
+  if (s_stats_period_ms == 0 ||
+      now - s_stats.last_box_ms < SYSTEM_LOGIC_STATS_MIN_PERIOD_MS) {
+    return;
+  }
+  s_stats.last_box_ms = now;
+  printf(">box:%d,%d,%d,%d,%u,%.3f\n", result->box[0], result->box[1],
+         result->box[2] - result->box[0], result->box[3] - result->box[1],
+         match->id, match->similarity);
+}
+
+static void print_telemetry_line(uint32_t now) {
+  const uint32_t period_ms = s_stats_period_ms;
+  if (period_ms == 0) {
+    s_stats.frames = 0;
+    s_stats.inference_sum_ms = 0;
+    s_stats.last_line_ms = now;
+    return;
+  }
+  const uint32_t elapsed_ms = now - s_stats.last_line_ms;
+  if (elapsed_ms < period_ms) {
+    return;
+  }
+  const float fps = (float)s_stats.frames * 1000.0f / (float)elapsed_ms;
+  const uint32_t average_inference_ms =
+      s_stats.frames > 0 ? s_stats.inference_sum_ms / s_stats.frames : 0;
+  char line[160];
+  int length = snprintf(line, sizeof(line),
+                        ">fps:%.1f,infer_ms:%lu,heap_free:%u,psram_free:%u",
+                        fps, (unsigned long)average_inference_ms,
+                        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                        (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  const int rssi_dbm = net_comm_get_rssi_dbm();
+  if (length > 0 && rssi_dbm != 0) {
+    length += snprintf(line + length, sizeof(line) - (size_t)length, ",rssi:%d",
+                       rssi_dbm);
+  }
+  if (length > 0 && (size_t)length < sizeof(line)) {
+    snprintf(line + length, sizeof(line) - (size_t)length,
+             ",state:%d,uptime_s:%llu", (int)unlock_sm_state(&s_machine),
+             (unsigned long long)(esp_timer_get_time() / 1000000));
+  }
+  printf("%s\n", line);
+  s_stats.frames = 0;
+  s_stats.inference_sum_ms = 0;
+  s_stats.last_line_ms = now;
+}
 
 static void post_event(app_event_id_t event_id, uint16_t face_id,
                        float similarity, const char *name,
@@ -295,6 +358,12 @@ static void process_frame(void) {
   }
   taskEXIT_CRITICAL(&s_status_lock);
 
+  s_stats.frames++;
+  s_stats.inference_sum_ms += ai_result.inference_ms;
+  if (ai_result.has_face) {
+    print_face_box(&ai_result, &frame.match, now_ms());
+  }
+
   if (ai_result.has_face) {
     handle_input(UNLOCK_INPUT_FACE, &frame, frame.match.id,
                  frame.match.similarity, 0);
@@ -313,6 +382,7 @@ static void recognition_task(void *argument) {
     poll_enroll_button();
     process_frame();
     handle_input(UNLOCK_INPUT_TICK, &no_frame, 0, 0.0f, 0);
+    print_telemetry_line(now_ms());
     /* Let the idle task on this core run (task watchdog, heap cleanup)
      * even when a new frame is always ready. */
     vTaskDelay(pdMS_TO_TICKS(LOOP_YIELD_MS));
@@ -420,6 +490,14 @@ esp_err_t system_logic_request_approve(uint32_t request_id) {
 esp_err_t system_logic_request_deny(uint32_t request_id) {
   const request_t request = {.type = REQUEST_DENY, .request_id = request_id};
   return send_request(&request);
+}
+
+uint32_t system_logic_set_stats_period_ms(uint32_t period_ms) {
+  if (period_ms != 0 && period_ms < SYSTEM_LOGIC_STATS_MIN_PERIOD_MS) {
+    period_ms = SYSTEM_LOGIC_STATS_MIN_PERIOD_MS;
+  }
+  s_stats_period_ms = period_ms;
+  return period_ms;
 }
 
 esp_err_t system_logic_get_status(system_logic_status_t *out_status) {

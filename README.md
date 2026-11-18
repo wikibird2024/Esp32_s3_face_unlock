@@ -87,6 +87,9 @@ face> unlock              # manual override
 face> delete 1
 face> clear yes
 face> help
+face> status json         # one-line JSON for tools (docs/console_protocol.md)
+face> stats 500           # telemetry line every 500 ms (>fps:..,heap_free:..); 0 = off
+face> free / tasks / restart / log wifi warn
 ```
 
 Or, with an enroll button set in menuconfig, hold it to enroll the next
@@ -119,6 +122,22 @@ flutter run -d linux                      # or plug in a phone: flutter run
 flutter analyze && flutter test
 ```
 
+### PC bench tool (`pc_tool/`, Tauri 2 + Rust + Svelte)
+
+Desktop app for development: serial console with log filters and panic
+backtrace decoding, live camera with the face box and last event, enroll
+and faces table, flashed-version vs build vs repo check with flash/erase/
+reset buttons, and live charts from the `stats` telemetry. The contract it
+follows is `docs/console_protocol.md`. Without a board it runs against the
+fake one:
+
+```bash
+python3 mobile_app/tool/fake_board.py --port 8080 --pty-link /tmp/face_unlock_tty
+cd pc_tool && npm install && npm run tauri dev     # port: /tmp/face_unlock_tty, IP: 127.0.0.1:8080
+```
+
+See `pc_tool/README.md` for the Linux packages it needs.
+
 ### Two-step unlock (optional)
 
 Set menuconfig → *System logic* → *Wait for approval after a known face*
@@ -138,7 +157,8 @@ milestone, through the same `system_logic_request_approve()` call.
 
 | Suite | Runs on | Command |
 |---|---|---|
-| Host unit tests: `face_db`, `unlock_state_machine` (50 tests, ASan + UBSan) | PC | see below |
+| Host unit tests: `face_db`, `unlock_state_machine`, `console_json` (ASan + UBSan) | PC | see below |
+| PC tool parsers (`pc_tool/crates/board_protocol`) | PC | `cd pc_tool && cargo test -p board_protocol` |
 | On-device tests: `face_db` on NVS, `door_control` GPIO + timer | ESP32-S3 | `cd test/target && idf.py build flash monitor` |
 
 ```bash
@@ -150,8 +170,9 @@ ctest --test-dir build-host --output-on-failure
 ```
 
 CI (`.github/workflows/ci.yml`) runs the host tests, a clang-format check,
-and builds the firmware and the on-device test app in the
-`espressif/idf:v5.5.1` container.
+builds the firmware and the on-device test app in the
+`espressif/idf:v5.5.1` container, checks the phone app, and builds the
+PC tool (parser tests + frontend build).
 
 ## Next milestones
 

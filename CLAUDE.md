@@ -12,14 +12,14 @@ hardware table and console commands.
 ## Commands
 
 ```bash
-# Host unit tests (no ESP-IDF needed) - run these after touching face_db or
-# unlock_state_machine
+# Host unit tests (no ESP-IDF needed) - run these after touching face_db,
+# unlock_state_machine or console_json
 cmake -S test/host -B build-host && cmake --build build-host
 ctest --test-dir build-host --output-on-failure
 ./build-host/test_face_db                 # one suite
 
-# Firmware (ESP-IDF v5.5.x; not installed on this dev machine - CI builds it)
-. $IDF_PATH/export.sh && idf.py build
+# Firmware (ESP-IDF v5.5.1 in ~/esp/esp-idf-v5.5.1; CI builds it too)
+. ~/esp/esp-idf-v5.5.1/export.sh && idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 
 # On-device tests (NVS, GPIO, timer) - needs a board
@@ -27,7 +27,11 @@ cd test/target && idf.py build flash monitor
 
 # Phone app (Flutter, SDK in /mnt/storage/HaoTran/sdk)
 cd mobile_app && flutter analyze && flutter test
-python3 mobile_app/tool/fake_board.py --port 8080   # board stand-in
+python3 mobile_app/tool/fake_board.py --port 8080 --pty-link /tmp/face_unlock_tty  # board stand-in: MJPEG + serial console on a pty
+
+# PC bench tool (Tauri 2 + Rust + Svelte; Linux packages in pc_tool/README.md)
+cd pc_tool && cargo test -p board_protocol        # parsers, no system libs needed
+cd pc_tool && npm run check && npm run build && npm run tauri dev
 
 # Formatting (CI fails on a diff)
 git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
@@ -61,6 +65,14 @@ git ls-files 'components/*.[ch]' 'components/*.cpp' 'main/*.c' 'test/host/*.c' \
   the record layout means bumping `RECORD_FORMAT_VERSION` in `face_db_nvs.c`.
 - A Kconfig `bool` set to `n` is **undefined**, so test it with `#if`, never
   use it in a C expression.
+- **Console protocol is a contract**: `docs/console_protocol.md` defines the
+  `@status` / `@list` JSON replies, the `>` telemetry lines and the event log
+  lines that `pc_tool/` and `mobile_app/tool/fake_console.py` parse. Change
+  the doc first, then firmware, fake console and tool together.
+  `console_json.c` stays free of ESP-IDF includes (host-tested).
+- `pc_tool/`: all parsing lives in the pure crate `crates/board_protocol`
+  (no tauri dependency); the Tauri crate only wires serial, HTTP, flash and
+  the UI. Rust/TS wire names are camelCase via serde.
 
 ## Known gaps
 

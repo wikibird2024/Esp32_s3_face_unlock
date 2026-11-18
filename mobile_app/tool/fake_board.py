@@ -9,15 +9,18 @@ video_stream component, so the app can be tested without hardware.
   /stream, other requests get no answer until that viewer leaves.
 
 Frames are the JPEG files in tool/fake_frames/, played in a loop.
+A fake serial console (fake_console.py) runs on a pty unless --no-console.
 Standard library only.
 
-  python3 tool/fake_board.py --port 8080
+  python3 tool/fake_board.py --port 8080 --pty-link /tmp/face_unlock_tty
 """
 
 import argparse
 import pathlib
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from fake_console import FakeConsole
 
 PART_BOUNDARY = "frameboundary"
 VIEWER_PAGE = (
@@ -83,6 +86,12 @@ def main():
         default=pathlib.Path(__file__).parent / "fake_frames",
         help="folder of .jpg files to play in a loop",
     )
+    parser.add_argument("--pty-link", help="symlink for the console pty, e.g. /tmp/face_unlock_tty")
+    parser.add_argument("--no-console", action="store_true", help="HTTP only, no serial console")
+    parser.add_argument("--seed", type=int, help="random seed for repeatable console events")
+    parser.add_argument("--approval", action="store_true", help="known faces wait for approve/deny")
+    parser.add_argument("--elf-sha256", help="hash the console prints on 'panic'")
+    parser.add_argument("--no-events", action="store_true", help="no random face events (for tests)")
     args = parser.parse_args()
 
     for path in sorted(args.frames.glob("*.jpg")):
@@ -93,8 +102,19 @@ def main():
 
     # Not ThreadingHTTPServer: the board answers one request at a time.
     server = HTTPServer(("0.0.0.0", args.port), BoardHandler)
-    print(f"fake board on http://0.0.0.0:{args.port}/  ({len(frames)} frames)")
-    server.serve_forever()
+    print(f"fake board on http://0.0.0.0:{args.port}/  ({len(frames)} frames)", flush=True)
+    console = None
+    if not args.no_console:
+        console = FakeConsole(args.seed, args.approval, args.elf_sha256, args.pty_link,
+                              args.no_events)
+        console.start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if console:
+            console.stop()
 
 
 if __name__ == "__main__":

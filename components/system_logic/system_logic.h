@@ -46,6 +46,18 @@ esp_err_t system_logic_request_deny(uint32_t request_id);
 
 esp_err_t system_logic_get_status(system_logic_status_t *out_status);
 
+/** Shortest telemetry period: one line per 100 ms is already a lot of
+ *  serial traffic next to the logs. */
+#define SYSTEM_LOGIC_STATS_MIN_PERIOD_MS 100u
+
+/**
+ * Print a `>fps:..,infer_ms:..` telemetry line every `period_ms` (and a
+ * `>box:` line on frames with a face), from the recognition task. 0 turns
+ * it off (the default). Shorter periods are raised to the minimum; returns
+ * the period in use. Format: docs/console_protocol.md.
+ */
+uint32_t system_logic_set_stats_period_ms(uint32_t period_ms);
+
 #ifdef __cplusplus
 }
 #endif

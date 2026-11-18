@@ -41,3 +41,9 @@ add_host_test(test_unlock_state_machine
   SOURCES test_unlock_state_machine.c
           ${REPO_ROOT}/components/system_logic/unlock_state_machine.c
   INCLUDES ${REPO_ROOT}/components/system_logic)
+
+add_host_test(test_console_json
+  SOURCES test_console_json.c
+          ${REPO_ROOT}/components/console_commands/console_json.c
+  INCLUDES ${REPO_ROOT}/components/console_commands
+           ${REPO_ROOT}/components/face_db)

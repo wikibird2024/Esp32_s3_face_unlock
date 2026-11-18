@@ -1,0 +1,19 @@
+[package]
+name = "bench_core"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Serial, camera relay, build info, flash and backtrace services for the bench tool (no tauri)"
+
+[dependencies]
+board_protocol = { path = "../board_protocol" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+serialport = "4.7"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+futures-util = "0.3"
+sha2 = "0.10"
+addr2line = { version = "0.25", features = ["loader"] }

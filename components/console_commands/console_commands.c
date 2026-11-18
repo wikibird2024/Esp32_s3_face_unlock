@@ -5,17 +5,36 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "console_json.h"
 #include "door_control.h"
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_console.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "net_comm.h"
 #include "system_logic.h"
 
 static const char *TAG = "console";
 
+/* Letters, digits, '_' and '-': keeps names safe in JSON and log lines. */
+#define ENROLL_NAME_ALLOWED_CHARS                                              \
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+#define ELF_SHA256_SHORT_LEN 8
+/* vTaskList() needs about 40 bytes per task plus the 0 byte. */
+#define TASK_LIST_BYTES_PER_TASK 48
+
 static face_db_t *s_face_db;
+/* Only the console task writes here; it is static to spare its stack. */
+static char s_json_buffer[CONSOLE_JSON_STATUS_MAX_LEN];
+
+static bool is_json_argument(int argc, char **argv) {
+  return argc == 2 && strcmp(argv[1], "json") == 0;
+}
 
 static bool face_db_ready(void) {
   if (s_face_db == NULL) {
@@ -33,9 +52,62 @@ static int report(esp_err_t err) {
   return 0;
 }
 
+static int print_status_json(void) {
+  system_logic_status_t status = {0};
+  const bool has_status = system_logic_get_status(&status) == ESP_OK;
+  char ip[NET_COMM_IP_MAX_LEN];
+  net_comm_get_ip(ip);
+  char elf_sha256_short[ELF_SHA256_SHORT_LEN + 1];
+  esp_app_get_elf_sha256(elf_sha256_short, sizeof(elf_sha256_short));
+  const esp_app_desc_t *app = esp_app_get_description();
+
+  const console_status_json_t json = {
+      .state_name = has_status ? unlock_state_name(status.state) : "",
+      .state_id = (int)status.state,
+      .frame_count = status.frame_count,
+      .face_frame_count = status.face_frame_count,
+      .inference_ms = status.last_inference_ms,
+      .last_face_id = status.last_face_id,
+      .last_similarity = status.last_similarity,
+      .min_similarity = status.min_similarity,
+      .waiting_request_id = status.waiting_request_id,
+      .is_door_open = door_control_is_open(),
+      .is_wifi_enabled = CONFIG_NET_COMM_WIFI_SSID[0] != '\0',
+      .is_wifi_connected = net_comm_is_connected(),
+      .ip = ip,
+      .has_face_store = s_face_db != NULL,
+      .face_count = s_face_db ? (uint32_t)face_db_count(s_face_db) : 0,
+      .face_capacity = s_face_db ? (uint32_t)face_db_capacity(s_face_db) : 0,
+      .face_skipped =
+          s_face_db ? (uint32_t)face_db_skipped_count(s_face_db) : 0,
+      .heap_internal = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+      .heap_psram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+      .heap_internal_min =
+          (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+      .app_version = app->version,
+      .idf_version = app->idf_ver,
+      .compile_date = app->date,
+      .compile_time = app->time,
+      .elf_sha256_short = elf_sha256_short,
+      .uptime_ms = (uint64_t)esp_timer_get_time() / 1000,
+  };
+  if (console_json_write_status(&json, s_json_buffer, sizeof(s_json_buffer)) <
+      0) {
+    printf("Failed: status line too long\n");
+    return 1;
+  }
+  printf("@status %s\n", s_json_buffer);
+  return 0;
+}
+
 static int command_status(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+  if (is_json_argument(argc, argv)) {
+    return print_status_json();
+  }
+  if (argc != 1) {
+    printf("Usage: status [json]\n");
+    return 1;
+  }
   system_logic_status_t status;
   if (system_logic_get_status(&status) == ESP_OK) {
     printf("state            %s\n", unlock_state_name(status.state));
@@ -74,10 +146,42 @@ static int command_status(int argc, char **argv) {
   return 0;
 }
 
+static int print_list_json(void) {
+  const size_t count = face_db_count(s_face_db);
+  face_db_entry_t *entries = calloc(count > 0 ? count : 1, sizeof(*entries));
+  const size_t capacity = count * CONSOLE_JSON_LIST_ENTRY_MAX_LEN + 8;
+  char *line = malloc(capacity);
+  int result = 1;
+  if (entries == NULL || line == NULL) {
+    printf("Failed: %s\n", esp_err_to_name(ESP_ERR_NO_MEM));
+  } else {
+    size_t found = 0;
+    for (size_t i = 0; i < count; i++) {
+      if (face_db_get_entry(s_face_db, i, &entries[found]) == FACE_DB_OK) {
+        found++;
+      }
+    }
+    if (console_json_write_list(entries, found, line, capacity) < 0) {
+      printf("Failed: list line too long\n");
+    } else {
+      printf("@list %s\n", line);
+      result = 0;
+    }
+  }
+  free(entries);
+  free(line);
+  return result;
+}
+
 static int command_list(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
   if (!face_db_ready()) {
+    return 1;
+  }
+  if (is_json_argument(argc, argv)) {
+    return print_list_json();
+  }
+  if (argc != 1) {
+    printf("Usage: list [json]\n");
     return 1;
   }
   const size_t count = face_db_count(s_face_db);
@@ -105,6 +209,10 @@ static int command_enroll(int argc, char **argv) {
   }
   if (strlen(argv[1]) > FACE_DB_NAME_MAX_LEN) {
     printf("Name too long (max %u characters)\n", FACE_DB_NAME_MAX_LEN);
+    return 1;
+  }
+  if (strspn(argv[1], ENROLL_NAME_ALLOWED_CHARS) != strlen(argv[1])) {
+    printf("Name: letters, digits, _ and - only\n");
     return 1;
   }
   int result = report(system_logic_request_enroll(argv[1]));
@@ -185,12 +293,104 @@ static int command_deny(int argc, char **argv) {
   return command_answer(argc, argv, false);
 }
 
+static int command_stats(int argc, char **argv) {
+  if (argc != 2) {
+    printf("Usage: stats <period_ms>   (0 = off)\n");
+    return 1;
+  }
+  char *end = NULL;
+  errno = 0;
+  const unsigned long period_ms = strtoul(argv[1], &end, 10);
+  if (end == argv[1] || *end != '\0' || errno == ERANGE ||
+      period_ms > UINT32_MAX) {
+    printf("Not a valid period: %s\n", argv[1]);
+    return 1;
+  }
+  const uint32_t applied_ms =
+      system_logic_set_stats_period_ms((uint32_t)period_ms);
+  if (applied_ms == 0) {
+    printf("Telemetry off\n");
+  } else {
+    printf("Telemetry every %lu ms\n", (unsigned long)applied_ms);
+  }
+  return 0;
+}
+
+static void print_heap_line(const char *label, uint32_t caps) {
+  printf("%s free %u, min %u, largest %u\n", label,
+         (unsigned)heap_caps_get_free_size(caps),
+         (unsigned)heap_caps_get_minimum_free_size(caps),
+         (unsigned)heap_caps_get_largest_free_block(caps));
+}
+
+static int command_free(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  print_heap_line("internal", MALLOC_CAP_INTERNAL);
+  print_heap_line("psram", MALLOC_CAP_SPIRAM);
+  return 0;
+}
+
+static int command_restart(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  printf("Restarting\n");
+  fflush(stdout);
+  vTaskDelay(pdMS_TO_TICKS(100));
+  esp_restart();
+}
+
+static int command_log(int argc, char **argv) {
+  static const struct {
+    const char *name;
+    esp_log_level_t level;
+  } levels[] = {
+      {"none", ESP_LOG_NONE},   {"error", ESP_LOG_ERROR},
+      {"warn", ESP_LOG_WARN},   {"info", ESP_LOG_INFO},
+      {"debug", ESP_LOG_DEBUG}, {"verbose", ESP_LOG_VERBOSE},
+  };
+  if (argc != 3) {
+    printf("Usage: log <tag|*> <none|error|warn|info|debug|verbose>\n");
+    return 1;
+  }
+  for (size_t i = 0; i < sizeof(levels) / sizeof(levels[0]); i++) {
+    if (strcmp(argv[2], levels[i].name) == 0) {
+      esp_log_level_set(argv[1], levels[i].level);
+      printf("Log level of '%s' set to %s\n", argv[1], levels[i].name);
+      return 0;
+    }
+  }
+  printf("Not a valid level: %s\n", argv[2]);
+  return 1;
+}
+
+#if CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
+static int command_tasks(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  const size_t capacity = uxTaskGetNumberOfTasks() * TASK_LIST_BYTES_PER_TASK;
+  char *table = malloc(capacity);
+  if (table == NULL) {
+    printf("Failed: %s\n", esp_err_to_name(ESP_ERR_NO_MEM));
+    return 1;
+  }
+  vTaskList(table);
+  printf("name            state prio stack num core\n%s", table);
+  free(table);
+  return 0;
+}
+#endif
+
 static esp_err_t register_commands(void) {
   const esp_console_cmd_t commands[] = {
       {.command = "status",
-       .help = "Show state, last match, faces and memory",
+       .help = "Show state, last match, faces and memory: status [json]",
+       .hint = "[json]",
        .func = command_status},
-      {.command = "list", .help = "List enrolled faces", .func = command_list},
+      {.command = "list",
+       .help = "List enrolled faces: list [json]",
+       .hint = "[json]",
+       .func = command_list},
       {.command = "enroll",
        .help = "Enroll the next face seen: enroll <name>",
        .hint = "<name>",
@@ -217,6 +417,21 @@ static esp_err_t register_commands(void) {
        .help = "Deny a face waiting for approval: deny <id>",
        .hint = "<id>",
        .func = command_deny},
+      {.command = "stats",
+       .help = "Print telemetry lines every <period_ms> ms (0 = off)",
+       .hint = "<period_ms>",
+       .func = command_stats},
+      {.command = "free", .help = "Show free heap", .func = command_free},
+      {.command = "restart", .help = "Reboot", .func = command_restart},
+      {.command = "log",
+       .help = "Set a log level: log <tag|*> <level>",
+       .hint = "<tag> <level>",
+       .func = command_log},
+#if CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
+      {.command = "tasks",
+       .help = "List FreeRTOS tasks",
+       .func = command_tasks},
+#endif
   };
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&commands[i]), TAG,

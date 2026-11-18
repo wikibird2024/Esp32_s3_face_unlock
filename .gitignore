@@ -32,3 +32,12 @@ test/target/sdkconfig
 test/target/sdkconfig.old
 test/target/managed_components/
 test/target/dependencies.lock
+
+# PC bench tool (Tauri)
+pc_tool/node_modules/
+pc_tool/build/
+pc_tool/dist/
+pc_tool/.svelte-kit/
+pc_tool/target/
+pc_tool/src-tauri/target/
+pc_tool/src-tauri/gen/

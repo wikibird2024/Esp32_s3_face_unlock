@@ -3,5 +3,5 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES face_db
     PRIV_REQUIRES ai_face_recognition app_events camera_driver door_control
-                  esp_driver_gpio esp_timer
+                  esp_driver_gpio esp_timer heap net_comm
 )

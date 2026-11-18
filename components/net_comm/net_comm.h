@@ -32,6 +32,10 @@ bool net_comm_is_connected(void);
  *  `out_ip` must hold at least NET_COMM_IP_MAX_LEN bytes. */
 void net_comm_get_ip(char *out_ip);
 
+/** Signal strength of the joined access point in dBm, or 0 when Wi-Fi is
+ *  off or not connected. */
+int net_comm_get_rssi_dbm(void);
+
 #ifdef __cplusplus
 }
 #endif

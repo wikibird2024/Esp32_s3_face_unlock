@@ -118,6 +118,16 @@ esp_err_t net_comm_init(void) {
 
 bool net_comm_is_connected(void) { return s_is_connected; }
 
+int net_comm_get_rssi_dbm(void) {
+  /* The compile-time SSID check comes first so a build without Wi-Fi
+     still drops the whole Wi-Fi library. */
+  if (CONFIG_NET_COMM_WIFI_SSID[0] == '\0' || !s_is_connected) {
+    return 0;
+  }
+  int rssi_dbm = 0;
+  return esp_wifi_sta_get_rssi(&rssi_dbm) == ESP_OK ? rssi_dbm : 0;
+}
+
 void net_comm_get_ip(char *out_ip) {
   if (out_ip == NULL) {
     return;
